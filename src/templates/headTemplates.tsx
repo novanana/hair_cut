@@ -48,9 +48,9 @@ function PointMarkers({ points }: { points: HeadPoint[] }) {
 /** 앞모습: 이마 헤어라인(C.P·S.P)과 귀(E.P)가 기준점이 되는 정면 실루엣 */
 function HeadFrontGuide() {
   const points: HeadPoint[] = [
-    { id: 'cp', label: 'C.P', x: 150, y: 90, dy: -6 },
-    { id: 'sp-l', label: 'S.P', x: 100, y: 118, dx: -11 },
-    { id: 'sp-r', label: 'S.P', x: 200, y: 118, dx: 11 },
+    { id: 'cp', label: 'C.P', x: 150, y: 94, dy: -6 },
+    { id: 'sp-l', label: 'S.P', x: 108, y: 120, dx: -11 },
+    { id: 'sp-r', label: 'S.P', x: 192, y: 120, dx: 11 },
     { id: 'ep-l', label: 'E.P', x: 79, y: 196, dx: -11 },
     { id: 'ep-r', label: 'E.P', x: 221, y: 196, dx: 11 },
   ]
@@ -79,8 +79,9 @@ function HeadFrontGuide() {
       <path d="M76,178 C70,182 67,192 70,203 C72,211 78,215 84,211 C81,200 80,189 82,180 C80,178 78,177 76,178 Z" {...OUTLINE} />
       <path d="M224,178 C230,182 233,192 230,203 C228,211 222,215 216,211 C219,200 220,189 218,180 C220,178 222,177 224,178 Z" {...OUTLINE} />
 
-      {/* 헤어라인 */}
-      <path d="M100,118 Q150,90 200,118" {...HAIRLINE} />
+      {/* 헤어라인 — 각진 헤어라인(스퀘어 헤어라인): 관자놀이는 직각으로 꺾이고
+          정수리 쪽은 완만하게 이어지며, 구레나룻이 귀 방향으로 짧게 이어짐 */}
+      <path d="M96,158 L108,120 L108,96 Q150,88 192,96 L192,120 L204,158" {...HAIRLINE} />
       {/* 중심 가이드 */}
       <path d="M150,66 L150,400" {...GUIDE_LINE} />
 
@@ -108,7 +109,7 @@ function HeadFrontGuide() {
 function HeadSideGuide() {
   const points: HeadPoint[] = [
     { id: 'cp', label: 'C.P', x: 108, y: 92, dx: -12, dy: -3 },
-    { id: 'sp', label: 'S.P', x: 130, y: 74, dy: -7 },
+    { id: 'sp', label: 'S.P', x: 129, y: 78, dy: -7 },
     { id: 'tp', label: 'T.P', x: 178, y: 58, dy: -7 },
     { id: 'gp', label: 'G.P', x: 222, y: 100, dx: 11, dy: -4 },
     { id: 'bp', label: 'B.P', x: 238, y: 148, dx: 12 },
@@ -158,8 +159,9 @@ function HeadSideGuide() {
       {/* 입술 라인 */}
       <path d="M81,183 Q84,185 82,188" {...FEATURE} />
 
-      {/* 이마 헤어라인 (C.P → S.P 구간만 표시해 두상 윤곽과 겹치지 않게 함) */}
-      <path d="M104,96 Q118,82 132,76" {...HAIRLINE} />
+      {/* 이마 헤어라인 — C.P에서 S.P까지 두상 윤곽을 따라 올라간 뒤 관자놀이에서
+          한 단(계단) 꺾여 구레나룻 라인으로 귀 앞까지 짧게 이어짐 */}
+      <path d="M100,98 Q113,83 129,78 L143,82 L143,98 L163,130 L184,164" {...HAIRLINE} />
 
       <PointMarkers points={points} />
     </g>
