@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 
 export type Tool = 'pen' | 'eraser'
 
@@ -77,17 +77,12 @@ function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   ctx.stroke()
 }
 
-export function DrawingCanvas({
-  viewBoxWidth,
-  viewBoxHeight,
-  strokes,
-  tool,
-  color,
-  lineWidth,
-  dashed,
-  onStrokeComplete,
-}: DrawingCanvasProps) {
+export const DrawingCanvas = forwardRef<HTMLCanvasElement, DrawingCanvasProps>(function DrawingCanvas(
+  { viewBoxWidth, viewBoxHeight, strokes, tool, color, lineWidth, dashed, onStrokeComplete },
+  forwardedRef,
+) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  useImperativeHandle(forwardedRef, () => canvasRef.current!, [])
   const activeStrokeRef = useRef<Stroke | null>(null)
   const activePointerId = useRef<number | null>(null)
 
@@ -176,4 +171,4 @@ export function DrawingCanvas({
       onPointerLeave={endStroke}
     />
   )
-}
+})

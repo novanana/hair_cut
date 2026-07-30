@@ -1,9 +1,13 @@
 import { useState } from 'react'
+import type { Diagram } from './db'
 import { HomeScreen } from './screens/HomeScreen'
 import { TemplateSelectScreen } from './screens/TemplateSelectScreen'
 import { EditorScreen } from './screens/EditorScreen'
 
-type Screen = { name: 'home' } | { name: 'select' } | { name: 'editor'; templateId: string }
+type Screen =
+  | { name: 'home' }
+  | { name: 'select' }
+  | { name: 'editor'; templateId: string; diagramId?: string }
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'home' })
@@ -11,7 +15,12 @@ export default function App() {
   return (
     <div className="mx-auto h-full max-w-md bg-zinc-950 text-zinc-50">
       {screen.name === 'home' && (
-        <HomeScreen onCreateNew={() => setScreen({ name: 'select' })} />
+        <HomeScreen
+          onCreateNew={() => setScreen({ name: 'select' })}
+          onOpenDiagram={(diagram: Diagram) =>
+            setScreen({ name: 'editor', templateId: diagram.templateId, diagramId: diagram.id })
+          }
+        />
       )}
       {screen.name === 'select' && (
         <TemplateSelectScreen
@@ -22,7 +31,8 @@ export default function App() {
       {screen.name === 'editor' && (
         <EditorScreen
           templateId={screen.templateId}
-          onBack={() => setScreen({ name: 'select' })}
+          diagramId={screen.diagramId}
+          onBack={() => setScreen({ name: 'home' })}
         />
       )}
     </div>
