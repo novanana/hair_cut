@@ -66,14 +66,34 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
   const [memo, setMemo] = useState('')
   const [category, setCategory] = useState<TemplateCategory>('cut')
 
+  // template position/zoom — unlocked lets two fingers pinch-zoom/pan the
+  // template into place; locking freezes the transform so single-finger
+  // touches go to drawing instead of accidentally nudging the view. declared
+  // early because captureThumbnail/autosave below read the current transform.
+  const [positionLocked, setPositionLocked] = useState(false)
+  const [transform, setTransform] = useState({ scale: 1, x: 0, y: 0 })
+
   // stable id for this diagram's IndexedDB record — reused across re-renders
   // whether we're editing an existing entry or creating a fresh one
   const [recordId] = useState(() => diagramId ?? uuidv4())
   const createdAtRef = useRef<number>(Date.now())
+  // manual sort position for the home screen list — a brand new diagram sorts
+  // first (very negative), an existing one keeps whatever position it had
+  const orderRef = useRef<number>(-Date.now())
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const photoImgRef = useRef<HTMLImageElement | null>(null)
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const [ready, setReady] = useState(!diagramId)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+
+  // preload the template photo once so captureThumbnail can draw it synchronously
+  useEffect(() => {
+    const img = new Image()
+    img.src = template.photo
+    photoImgRef.current = img
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [template.photo])
 
   // load an existing diagram's saved state once, before autosave is allowed to run
   useEffect(() => {
@@ -87,6 +107,7 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
         setMemo(saved.memo)
         setCategory(saved.category)
         createdAtRef.current = saved.createdAt
+        orderRef.current = saved.order
       }
       setReady(true)
     })
@@ -96,9 +117,21 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diagramId])
 
+  // captures exactly what's currently visible in the viewport — photo and
+  // strokes composited at the same pan/zoom the user left them at, so the
+  // saved thumbnail matches the editor screen instead of always showing the
+  // template at its default position
   const captureThumbnail = (): string | undefined => {
-    const source = canvasRef.current
-    if (!source) return undefined
+    const strokesCanvas = canvasRef.current
+    const viewportEl = viewportRef.current
+    const photoImg = photoImgRef.current
+    if (!strokesCanvas || !viewportEl || !photoImg || !photoImg.complete || !photoImg.naturalWidth) {
+      return undefined
+    }
+    const vw = viewportEl.clientWidth
+    const vh = viewportEl.clientHeight
+    if (!vw || !vh) return undefined
+
     const width = THUMBNAIL_WIDTH
     const height = Math.round(width * (template.viewBox.height / template.viewBox.width))
     const off = document.createElement('canvas')
@@ -106,15 +139,51 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
     off.height = height
     const ctx = off.getContext('2d')
     if (!ctx) return undefined
-    // the backing canvas covers the padded world, not just the template —
-    // crop to the template's own sub-rectangle so thumbnails aren't zoomed
-    // out with blank margins around the silhouette
-    const cropFraction = 1 / WORLD_SCALE
-    const sx = source.width * CANVAS_PADDING_RATIO * cropFraction
-    const sy = source.height * CANVAS_PADDING_RATIO * cropFraction
-    const sw = source.width * cropFraction
-    const sh = source.height * cropFraction
-    ctx.drawImage(source, sx, sy, sw, sh, 0, 0, width, height)
+
+    // match the card's own background so this blends in seamlessly, including
+    // in the letterboxed margins that appear when zoomed out
+    ctx.fillStyle = '#09090b'
+    ctx.fillRect(0, 0, width, height)
+
+    // template-local (0,0)-(tw,th) maps to viewport CSS px as:
+    //   screenX = x + Vw*(scale*px/tw + P*(scale-1)), and likewise for Y —
+    // derived from the layer's `inset: -P*100%` position plus its
+    // `translate(x,y) scale(scale)` transform (origin at the layer's own
+    // top-left, i.e. P*100% up/left of the viewport). Converting that CSS-px
+    // rect straight to thumbnail-px (same aspect ratio, so one factor works
+    // for both axes) gives exactly where the photo appears on screen.
+    const px2thumb = width / vw
+    const { scale, x, y } = transform
+    const photoDestX = (x + vw * CANVAS_PADDING_RATIO * (scale - 1)) * px2thumb
+    const photoDestY = (y + vh * CANVAS_PADDING_RATIO * (scale - 1)) * px2thumb
+    const photoDestW = vw * scale * px2thumb
+    const photoDestH = vh * scale * px2thumb
+
+    // the photo itself is fit into that box the same way the SVG's
+    // preserveAspectRatio="xMidYMid meet" does — letterboxed on one axis
+    const boxAspect = template.viewBox.width / template.viewBox.height
+    const imgAspect = photoImg.naturalWidth / photoImg.naturalHeight
+    let fitX = photoDestX
+    let fitY = photoDestY
+    let fitW = photoDestW
+    let fitH = photoDestH
+    if (imgAspect > boxAspect) {
+      fitH = photoDestW / imgAspect
+      fitY = photoDestY + (photoDestH - fitH) / 2
+    } else {
+      fitW = photoDestH * imgAspect
+      fitX = photoDestX + (photoDestW - fitW) / 2
+    }
+    ctx.drawImage(photoImg, fitX, fitY, fitW, fitH)
+
+    // the strokes canvas's backing bitmap covers the padded WORLD box, which
+    // is the same photo rect expanded by CANVAS_PADDING_RATIO on every side
+    const worldDestX = photoDestX - photoDestW * CANVAS_PADDING_RATIO
+    const worldDestY = photoDestY - photoDestH * CANVAS_PADDING_RATIO
+    const worldDestW = photoDestW * WORLD_SCALE
+    const worldDestH = photoDestH * WORLD_SCALE
+    ctx.drawImage(strokesCanvas, 0, 0, strokesCanvas.width, strokesCanvas.height, worldDestX, worldDestY, worldDestW, worldDestH)
+
     return off.toDataURL('image/png')
   }
 
@@ -130,6 +199,7 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
       thumbnail: captureThumbnail(),
       createdAt: createdAtRef.current,
       updatedAt: Date.now(),
+      order: orderRef.current,
     }
     await db.diagrams.put(diagram)
     setSaveStatus('saved')
@@ -146,8 +216,10 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
     }
+    // transform is included so panning/zooming alone (without drawing) also
+    // re-captures the thumbnail once the view settles
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, title, strokes, memo, category])
+  }, [ready, title, strokes, memo, category, transform])
 
   const handleBack = () => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
@@ -155,11 +227,6 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
     onBack()
   }
 
-  // template position/zoom — unlocked lets two fingers pinch-zoom/pan the
-  // template into place; locking freezes the transform so single-finger
-  // touches go to drawing instead of accidentally nudging the view
-  const [positionLocked, setPositionLocked] = useState(false)
-  const [transform, setTransform] = useState({ scale: 1, x: 0, y: 0 })
   const activeGesturePointers = useRef(new Map<number, Point>())
   const lastGesture = useRef<{ dist: number; mid: Point } | null>(null)
 
@@ -284,7 +351,7 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
         {!ready ? (
           <div className="flex h-full items-center justify-center text-sm text-zinc-500">불러오는 중…</div>
         ) : (
-          <div className="relative mx-auto aspect-[3/4] w-full max-h-full overflow-hidden">
+          <div ref={viewportRef} className="relative mx-auto aspect-[3/4] w-full max-h-full overflow-hidden">
             <div
               className="absolute"
               style={{
