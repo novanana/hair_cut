@@ -3,7 +3,9 @@ import { v4 as uuidv4 } from 'uuid'
 import { DrawingCanvas, type Stroke, type Tool } from '../components/DrawingCanvas'
 import { Toolbar } from '../components/Toolbar'
 import { CATEGORY_LABELS, db, type Diagram } from '../db'
+import { useTemplateOverride } from '../hooks/useTemplateOverride'
 import { getTemplate, type TemplateCategory } from '../templates/headTemplates'
+import { TemplateSettingsScreen } from './TemplateSettingsScreen'
 
 interface EditorScreenProps {
   templateId: string
@@ -50,6 +52,9 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
   const worldHeight = template.viewBox.height * WORLD_SCALE
   const originX = -template.viewBox.width * CANVAS_PADDING_RATIO
   const originY = -template.viewBox.height * CANVAS_PADDING_RATIO
+  const savedLayout = useTemplateOverride(templateId)
+  const layout = savedLayout ?? template.defaultLayout
+  const [showTemplateSettings, setShowTemplateSettings] = useState(false)
 
   const [title, setTitle] = useState('')
   const [strokes, setStrokes] = useState<Stroke[]>([])
@@ -226,7 +231,10 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
+      {showTemplateSettings && (
+        <TemplateSettingsScreen templateId={templateId} onClose={() => setShowTemplateSettings(false)} />
+      )}
       <header className="flex items-center gap-3 border-b border-zinc-800 px-3 py-3">
         <button onClick={handleBack} aria-label="뒤로" className="text-xl">
           ←
@@ -240,6 +248,13 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
         <span className="shrink-0 text-xs text-zinc-500">
           {saveStatus === 'saving' ? '저장 중…' : saveStatus === 'saved' ? '저장됨' : ''}
         </span>
+        <button
+          onClick={() => setShowTemplateSettings(true)}
+          aria-label="템플릿 설정"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200"
+        >
+          ⚙️
+        </button>
         <button
           onClick={() => setShowMemo((v) => !v)}
           aria-label="메모"
@@ -282,7 +297,7 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
                 viewBox={`${originX} ${originY} ${worldWidth} ${worldHeight}`}
                 className="pointer-events-none absolute inset-0 h-full w-full"
               >
-                <template.Guide />
+                <template.Guide layout={layout} />
               </svg>
               <DrawingCanvas
                 ref={canvasRef}

@@ -1,6 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie'
 import type { Stroke } from './components/DrawingCanvas'
-import type { TemplateCategory } from './templates/headTemplates'
+import type { TemplateCategory, TemplateLayout } from './templates/headTemplates'
 
 export interface Diagram {
   id: string
@@ -14,6 +14,13 @@ export interface Diagram {
   updatedAt: number
 }
 
+/** a user's saved customization (ear position / hairline / head points) for one template */
+export interface TemplateOverride {
+  templateId: string
+  layout: TemplateLayout
+  updatedAt: number
+}
+
 export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
   cut: '커트',
   perm: '펌',
@@ -24,11 +31,16 @@ export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
 
 class HairDiagramDB extends Dexie {
   diagrams!: EntityTable<Diagram, 'id'>
+  templateOverrides!: EntityTable<TemplateOverride, 'templateId'>
 
   constructor() {
     super('hair-diagram-notes')
     this.version(1).stores({
       diagrams: 'id, category, updatedAt',
+    })
+    this.version(2).stores({
+      diagrams: 'id, category, updatedAt',
+      templateOverrides: 'templateId',
     })
   }
 }
