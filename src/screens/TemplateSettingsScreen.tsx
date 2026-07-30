@@ -16,8 +16,12 @@ const MODE_LABELS: Record<Mode, string> = {
 
 const MODE_HINTS: Record<Mode, string> = {
   hairline: '화면을 손가락으로 그으면 헤어라인이 새로 그려집니다.',
-  points: '주황 점을 끌어서 기준점 위치를 옮기세요.',
+  points: '빈 곳을 탭하면 포인트 추가, 점을 탭하면 삭제, 끌면 이동합니다.',
 }
+
+// how far a pointer has to travel before a touch counts as a drag rather
+// than a tap — taps add/delete points, drags move them
+const TAP_THRESHOLD = 4
 
 function distance(a: Point, b: Point) {
   return Math.hypot(a.x - b.x, a.y - b.y)
@@ -31,7 +35,11 @@ export function TemplateSettingsScreen({ templateId, onClose }: TemplateSettings
   const [saving, setSaving] = useState(false)
   const svgRef = useRef<SVGSVGElement>(null)
   const dragIndexRef = useRef<number | null>(null)
+  const dragStartRef = useRef<Point | null>(null)
+  const addStartRef = useRef<Point | null>(null)
+  const pointerMovedRef = useRef(false)
   const drawingRef = useRef(false)
+  const nextPointNumberRef = useRef(1)
 
   useEffect(() => {
     let cancelled = false
@@ -62,19 +70,34 @@ export function TemplateSettingsScreen({ templateId, onClose }: TemplateSettings
       // ignore — fall back to implicit touch targeting
     }
     dragIndexRef.current = index
+    dragStartRef.current = toPoint(e)
+    pointerMovedRef.current = false
   }
 
   const handleSvgPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (mode !== 'hairline') return
-    e.preventDefault()
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId)
-    } catch {
-      // ignore — fall back to implicit touch targeting
+    if (mode === 'hairline') {
+      e.preventDefault()
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId)
+      } catch {
+        // ignore — fall back to implicit touch targeting
+      }
+      drawingRef.current = true
+      const p = toPoint(e)
+      setDraft((d) => ({ ...d, hairline: [p] }))
+      return
     }
-    drawingRef.current = true
-    const p = toPoint(e)
-    setDraft((d) => ({ ...d, hairline: [p] }))
+    if (mode === 'points') {
+      // only reached for taps that didn't start on an existing marker — those
+      // stop propagation in beginPointDrag before this handler ever sees them
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId)
+      } catch {
+        // ignore — fall back to implicit touch targeting
+      }
+      addStartRef.current = toPoint(e)
+      pointerMovedRef.current = false
+    }
   }
 
   const handleSvgPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
@@ -87,18 +110,42 @@ export function TemplateSettingsScreen({ templateId, onClose }: TemplateSettings
       })
       return
     }
-    if (dragIndexRef.current === null) return
-    const p = toPoint(e)
-    const idx = dragIndexRef.current
-    setDraft((d) => {
-      const points = d.points.slice()
-      points[idx] = { ...points[idx], x: p.x, y: p.y }
-      return { ...d, points }
-    })
+    if (dragIndexRef.current !== null) {
+      const p = toPoint(e)
+      if (dragStartRef.current && distance(dragStartRef.current, p) > TAP_THRESHOLD) {
+        pointerMovedRef.current = true
+      }
+      const idx = dragIndexRef.current
+      setDraft((d) => {
+        const points = d.points.slice()
+        points[idx] = { ...points[idx], x: p.x, y: p.y }
+        return { ...d, points }
+      })
+      return
+    }
+    if (mode === 'points' && addStartRef.current) {
+      const p = toPoint(e)
+      if (distance(addStartRef.current, p) > TAP_THRESHOLD) pointerMovedRef.current = true
+    }
   }
 
   const endInteraction = () => {
+    if (dragIndexRef.current !== null) {
+      if (!pointerMovedRef.current) {
+        // a tap (no drag) on an existing marker removes it
+        const idx = dragIndexRef.current
+        setDraft((d) => ({ ...d, points: d.points.filter((_, i) => i !== idx) }))
+      }
+    } else if (mode === 'points' && addStartRef.current && !pointerMovedRef.current) {
+      // a tap (no drag) on empty space adds a new point there
+      const p = addStartRef.current
+      const label = `P${nextPointNumberRef.current++}`
+      setDraft((d) => ({ ...d, points: [...d.points, { id: `custom-${Date.now()}`, label, x: p.x, y: p.y }] }))
+    }
     dragIndexRef.current = null
+    dragStartRef.current = null
+    addStartRef.current = null
+    pointerMovedRef.current = false
     drawingRef.current = false
   }
 
@@ -152,7 +199,7 @@ export function TemplateSettingsScreen({ templateId, onClose }: TemplateSettings
           <svg
             ref={svgRef}
             viewBox={`0 0 ${template.viewBox.width} ${template.viewBox.height}`}
-            className="mx-auto aspect-[3/4] h-full max-w-full touch-none"
+            className="mx-auto aspect-[3/4] w-full max-h-full touch-none"
             onPointerDown={handleSvgPointerDown}
             onPointerMove={handleSvgPointerMove}
             onPointerUp={endInteraction}
