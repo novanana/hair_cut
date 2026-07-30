@@ -4,7 +4,12 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
+// GitHub Pages serves this project from https://novanana.github.io/hair_cut/,
+// not the domain root, so every asset/manifest path needs this prefix.
+const base = '/hair_cut/'
+
 export default defineConfig({
+  base,
   plugins: [
     react(),
     tailwindcss(),
@@ -19,7 +24,8 @@ export default defineConfig({
         background_color: '#18181b',
         display: 'standalone',
         orientation: 'portrait',
-        start_url: '/',
+        start_url: base,
+        scope: base,
         icons: [
           { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
           { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
