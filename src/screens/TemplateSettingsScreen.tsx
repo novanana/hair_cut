@@ -16,7 +16,7 @@ const MODE_LABELS: Record<Mode, string> = {
 
 const MODE_HINTS: Record<Mode, string> = {
   hairline: '화면을 손가락으로 그으면 헤어라인이 새로 그려집니다.',
-  points: '빈 곳을 탭하면 포인트 추가, 점을 탭하면 삭제, 끌면 이동합니다.',
+  points: '빈 곳을 탭하면 포인트 추가, 점을 탭하면 이름 변경/삭제, 끌면 이동합니다.',
 }
 
 // how far a pointer has to travel before a touch counts as a drag rather
@@ -33,6 +33,7 @@ export function TemplateSettingsScreen({ templateId, onClose }: TemplateSettings
   const [draft, setDraft] = useState<TemplateLayout>(template.defaultLayout)
   const [ready, setReady] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const dragIndexRef = useRef<number | null>(null)
   const dragStartRef = useRef<Point | null>(null)
@@ -132,21 +133,45 @@ export function TemplateSettingsScreen({ templateId, onClose }: TemplateSettings
   const endInteraction = () => {
     if (dragIndexRef.current !== null) {
       if (!pointerMovedRef.current) {
-        // a tap (no drag) on an existing marker removes it
+        // a tap (no drag) on an existing marker selects it for renaming/deleting,
+        // or deselects it if it was already selected
         const idx = dragIndexRef.current
-        setDraft((d) => ({ ...d, points: d.points.filter((_, i) => i !== idx) }))
+        setSelectedIndex((current) => (current === idx ? null : idx))
       }
     } else if (mode === 'points' && addStartRef.current && !pointerMovedRef.current) {
-      // a tap (no drag) on empty space adds a new point there
+      // a tap (no drag) on empty space adds a new point there, pre-selected so
+      // its auto-generated name is immediately ready to rename
       const p = addStartRef.current
       const label = `P${nextPointNumberRef.current++}`
-      setDraft((d) => ({ ...d, points: [...d.points, { id: `custom-${Date.now()}`, label, x: p.x, y: p.y }] }))
+      setDraft((d) => {
+        const points = [...d.points, { id: `custom-${Date.now()}`, label, x: p.x, y: p.y }]
+        setSelectedIndex(points.length - 1)
+        return { ...d, points }
+      })
     }
     dragIndexRef.current = null
     dragStartRef.current = null
     addStartRef.current = null
     pointerMovedRef.current = false
     drawingRef.current = false
+  }
+
+  const selectedPoint = selectedIndex !== null ? draft.points[selectedIndex] : undefined
+
+  const renameSelected = (label: string) => {
+    if (selectedIndex === null) return
+    setDraft((d) => {
+      const points = d.points.slice()
+      points[selectedIndex] = { ...points[selectedIndex], label }
+      return { ...d, points }
+    })
+  }
+
+  const deleteSelected = () => {
+    if (selectedIndex === null) return
+    const idx = selectedIndex
+    setSelectedIndex(null)
+    setDraft((d) => ({ ...d, points: d.points.filter((_, i) => i !== idx) }))
   }
 
   const handleSave = async () => {
@@ -158,6 +183,12 @@ export function TemplateSettingsScreen({ templateId, onClose }: TemplateSettings
 
   const handleResetDraft = () => {
     setDraft(template.defaultLayout)
+    setSelectedIndex(null)
+  }
+
+  const changeMode = (m: Mode) => {
+    setMode(m)
+    setSelectedIndex(null)
   }
 
   return (
@@ -180,7 +211,7 @@ export function TemplateSettingsScreen({ templateId, onClose }: TemplateSettings
         {(Object.keys(MODE_LABELS) as Mode[]).map((m) => (
           <button
             key={m}
-            onClick={() => setMode(m)}
+            onClick={() => changeMode(m)}
             className={`shrink-0 rounded-full px-3 py-1 text-xs ${
               mode === m ? 'bg-white text-zinc-900' : 'bg-zinc-800 text-zinc-300'
             }`}
@@ -190,7 +221,30 @@ export function TemplateSettingsScreen({ templateId, onClose }: TemplateSettings
         ))}
       </div>
 
-      <p className="px-3 py-2 text-center text-xs text-zinc-400">{MODE_HINTS[mode]}</p>
+      {mode === 'points' && selectedPoint ? (
+        <div className="flex items-center gap-2 px-3 py-2">
+          <input
+            value={selectedPoint.label}
+            onChange={(e) => renameSelected(e.target.value)}
+            placeholder="포인트 이름"
+            className="min-w-0 flex-1 rounded-lg bg-zinc-800 px-3 py-1.5 text-sm outline-none placeholder:text-zinc-500"
+          />
+          <button
+            onClick={deleteSelected}
+            className="shrink-0 rounded-full bg-red-500/20 px-3 py-1.5 text-xs text-red-300"
+          >
+            삭제
+          </button>
+          <button
+            onClick={() => setSelectedIndex(null)}
+            className="shrink-0 rounded-full bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300"
+          >
+            완료
+          </button>
+        </div>
+      ) : (
+        <p className="px-3 py-2 text-center text-xs text-zinc-400">{MODE_HINTS[mode]}</p>
+      )}
 
       <div className="relative flex-1 overflow-hidden bg-zinc-950 px-4 pb-4">
         {!ready ? (
@@ -209,17 +263,21 @@ export function TemplateSettingsScreen({ templateId, onClose }: TemplateSettings
 
             {mode === 'points' &&
               draft.points.map((p, idx) => (
-                <circle
-                  key={p.id}
-                  cx={p.x}
-                  cy={p.y}
-                  r={7}
-                  fill="#f59e0b"
-                  fillOpacity={0.55}
-                  stroke="#78350f"
-                  strokeWidth={1.2}
-                  onPointerDown={beginPointDrag(idx)}
-                />
+                <g key={p.id}>
+                  {idx === selectedIndex && (
+                    <circle cx={p.x} cy={p.y} r={11} fill="none" stroke="#38bdf8" strokeWidth={1.5} />
+                  )}
+                  <circle
+                    cx={p.x}
+                    cy={p.y}
+                    r={7}
+                    fill="#f59e0b"
+                    fillOpacity={0.55}
+                    stroke="#78350f"
+                    strokeWidth={1.2}
+                    onPointerDown={beginPointDrag(idx)}
+                  />
+                </g>
               ))}
           </svg>
         )}
