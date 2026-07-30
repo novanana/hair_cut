@@ -13,6 +13,7 @@ export interface Stroke {
   tool: Tool
   color: string
   width: number
+  dashed: boolean
   points: StrokePoint[]
 }
 
@@ -34,6 +35,7 @@ interface DrawingCanvasProps {
   tool: Tool
   color: string
   lineWidth: number
+  dashed: boolean
   onStrokeComplete: (stroke: Stroke) => void
 }
 
@@ -45,29 +47,34 @@ function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   ctx.strokeStyle = stroke.color
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
+  ctx.setLineDash(stroke.dashed ? [stroke.width * 2.5, stroke.width * 2] : [])
+
+  const avgPressure = points.reduce((sum, p) => sum + p.pressure, 0) / points.length
+  ctx.lineWidth = stroke.width * (0.6 + avgPressure * 0.8)
 
   if (points.length === 1) {
     const p = points[0]
     ctx.beginPath()
-    ctx.lineWidth = stroke.width * (0.6 + p.pressure * 0.8)
     ctx.moveTo(p.x, p.y)
     ctx.lineTo(p.x + 0.1, p.y + 0.1)
     ctx.stroke()
     return
   }
 
-  // smooth the polyline with quadratic segments through midpoints, varying
-  // width slightly with pressure so pen input feels less mechanical
-  for (let i = 1; i < points.length; i++) {
-    const prev = points[i - 1]
+  // draw the whole stroke as ONE continuous path (smoothed with running
+  // midpoints) and stroke it once — dash patterns restart at each separate
+  // stroke() call, so splitting into per-segment paths made dashes and solid
+  // lines look identical
+  ctx.beginPath()
+  ctx.moveTo(points[0].x, points[0].y)
+  for (let i = 1; i < points.length - 1; i++) {
     const curr = points[i]
-    const mid = { x: (prev.x + curr.x) / 2, y: (prev.y + curr.y) / 2 }
-    ctx.beginPath()
-    ctx.lineWidth = stroke.width * (0.6 + curr.pressure * 0.8)
-    ctx.moveTo(prev.x, prev.y)
-    ctx.quadraticCurveTo(prev.x, prev.y, mid.x, mid.y)
-    ctx.stroke()
+    const next = points[i + 1]
+    const mid = { x: (curr.x + next.x) / 2, y: (curr.y + next.y) / 2 }
+    ctx.quadraticCurveTo(curr.x, curr.y, mid.x, mid.y)
   }
+  ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y)
+  ctx.stroke()
 }
 
 export function DrawingCanvas({
@@ -77,6 +84,7 @@ export function DrawingCanvas({
   tool,
   color,
   lineWidth,
+  dashed,
   onStrokeComplete,
 }: DrawingCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -136,6 +144,7 @@ export function DrawingCanvas({
       tool,
       color,
       width: lineWidth,
+      dashed,
       points: [toViewBoxPoint(e)],
     }
     renderAll(activeStrokeRef.current)

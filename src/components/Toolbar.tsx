@@ -7,10 +7,9 @@ const COLORS = [
   { value: '#22c55e', label: '보조' },
 ]
 
-const WIDTHS = [
-  { value: 2, label: '얇게' },
-  { value: 4, label: '보통' },
-  { value: 7, label: '굵게' },
+const LINE_STYLES: { value: boolean; label: string }[] = [
+  { value: false, label: '얇게' },
+  { value: true, label: '점선' },
 ]
 
 interface ToolbarProps {
@@ -18,8 +17,8 @@ interface ToolbarProps {
   onToolChange: (tool: Tool) => void
   color: string
   onColorChange: (color: string) => void
-  lineWidth: number
-  onLineWidthChange: (width: number) => void
+  dashed: boolean
+  onDashedChange: (dashed: boolean) => void
   canUndo: boolean
   canRedo: boolean
   onUndo: () => void
@@ -31,8 +30,8 @@ export function Toolbar({
   onToolChange,
   color,
   onColorChange,
-  lineWidth,
-  onLineWidthChange,
+  dashed,
+  onDashedChange,
   canUndo,
   canRedo,
   onUndo,
@@ -89,15 +88,15 @@ export function Toolbar({
       </div>
 
       <div className="flex gap-1.5">
-        {WIDTHS.map((w) => (
+        {LINE_STYLES.map((s) => (
           <button
-            key={w.value}
-            onClick={() => onLineWidthChange(w.value)}
+            key={s.label}
+            onClick={() => onDashedChange(s.value)}
             className={`flex h-9 flex-1 items-center justify-center rounded-lg text-sm ${
-              lineWidth === w.value ? 'bg-white text-zinc-900' : 'bg-zinc-800 text-zinc-300'
+              dashed === s.value ? 'bg-white text-zinc-900' : 'bg-zinc-800 text-zinc-300'
             }`}
           >
-            {w.label}
+            {s.label}
           </button>
         ))}
       </div>

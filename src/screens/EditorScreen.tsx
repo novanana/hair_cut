@@ -8,6 +8,8 @@ interface EditorScreenProps {
   onBack: () => void
 }
 
+const THIN_WIDTH = 2
+
 export function EditorScreen({ templateId, onBack }: EditorScreenProps) {
   const template = getTemplate(templateId)
 
@@ -16,7 +18,7 @@ export function EditorScreen({ templateId, onBack }: EditorScreenProps) {
   const [redoStack, setRedoStack] = useState<Stroke[]>([])
   const [tool, setTool] = useState<Tool>('pen')
   const [color, setColor] = useState('#f4f4f5')
-  const [lineWidth, setLineWidth] = useState(4)
+  const [dashed, setDashed] = useState(false)
   const [showMemo, setShowMemo] = useState(false)
   const [memo, setMemo] = useState('')
 
@@ -78,7 +80,8 @@ export function EditorScreen({ templateId, onBack }: EditorScreenProps) {
             strokes={strokes}
             tool={tool}
             color={color}
-            lineWidth={lineWidth}
+            lineWidth={THIN_WIDTH}
+            dashed={dashed}
             onStrokeComplete={handleStrokeComplete}
           />
         </div>
@@ -106,8 +109,8 @@ export function EditorScreen({ templateId, onBack }: EditorScreenProps) {
         onToolChange={setTool}
         color={color}
         onColorChange={setColor}
-        lineWidth={lineWidth}
-        onLineWidthChange={setLineWidth}
+        dashed={dashed}
+        onDashedChange={setDashed}
         canUndo={strokes.length > 0}
         canRedo={redoStack.length > 0}
         onUndo={handleUndo}
