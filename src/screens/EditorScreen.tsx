@@ -273,6 +273,7 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
                 lineWidth={THIN_WIDTH}
                 dashed={dashed}
                 onStrokeComplete={handleStrokeComplete}
+                resolutionScale={positionLocked ? transform.scale : 1}
               />
             </div>
 

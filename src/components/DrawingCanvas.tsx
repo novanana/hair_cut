@@ -37,7 +37,15 @@ interface DrawingCanvasProps {
   lineWidth: number
   dashed: boolean
   onStrokeComplete: (stroke: Stroke) => void
+  /** how much bigger than 1:1 the template is currently displayed (CSS zoom) —
+   * bumps the canvas's backing resolution to match so zoomed-in strokes stay
+   * crisp instead of getting blurry from the browser upscaling a fixed-res canvas */
+  resolutionScale?: number
 }
+
+// keep the physical canvas within what mobile Safari/Chrome can reliably
+// rasterize — very old iOS Safari caps canvas area around 4096x4096
+const MAX_CANVAS_DIMENSION = 4096
 
 function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   const { points } = stroke
@@ -78,7 +86,7 @@ function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
 }
 
 export const DrawingCanvas = forwardRef<HTMLCanvasElement, DrawingCanvasProps>(function DrawingCanvas(
-  { viewBoxWidth, viewBoxHeight, strokes, tool, color, lineWidth, dashed, onStrokeComplete },
+  { viewBoxWidth, viewBoxHeight, strokes, tool, color, lineWidth, dashed, onStrokeComplete, resolutionScale = 1 },
   forwardedRef,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -99,19 +107,23 @@ export const DrawingCanvas = forwardRef<HTMLCanvasElement, DrawingCanvasProps>(f
     if (extra) drawStroke(ctx, extra)
   }
 
-  // keep the backing resolution crisp on high-dpi phone screens and
-  // redraw whenever the committed stroke list changes (e.g. undo/redo)
+  // keep the backing resolution crisp on high-dpi phone screens (and while
+  // zoomed in, per resolutionScale) and redraw whenever the committed stroke
+  // list changes (e.g. undo/redo)
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const dpr = window.devicePixelRatio || 1
-    canvas.width = viewBoxWidth * dpr
-    canvas.height = viewBoxHeight * dpr
+    const rawWidth = viewBoxWidth * dpr * resolutionScale
+    const rawHeight = viewBoxHeight * dpr * resolutionScale
+    const clamp = Math.min(1, MAX_CANVAS_DIMENSION / Math.max(rawWidth, rawHeight))
+    canvas.width = Math.round(rawWidth * clamp)
+    canvas.height = Math.round(rawHeight * clamp)
     const ctx = canvas.getContext('2d')
-    ctx?.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx?.setTransform(canvas.width / viewBoxWidth, 0, 0, canvas.height / viewBoxHeight, 0, 0)
     renderAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [strokes, viewBoxWidth, viewBoxHeight])
+  }, [strokes, viewBoxWidth, viewBoxHeight, resolutionScale])
 
   const toViewBoxPoint = (e: React.PointerEvent<HTMLCanvasElement>): StrokePoint => {
     const rect = e.currentTarget.getBoundingClientRect()
