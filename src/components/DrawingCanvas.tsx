@@ -31,6 +31,12 @@ function generateId(): string {
 interface DrawingCanvasProps {
   viewBoxWidth: number
   viewBoxHeight: number
+  /** top-left corner of the addressable coordinate space, in template units.
+   * lets the drawable area extend beyond the template's own [0,width]x[0,height]
+   * box (e.g. negative origin = extra margin above/left of the template) while
+   * existing strokes — authored back when origin was always 0,0 — stay put */
+  originX?: number
+  originY?: number
   strokes: Stroke[]
   tool: Tool
   color: string
@@ -86,7 +92,19 @@ function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
 }
 
 export const DrawingCanvas = forwardRef<HTMLCanvasElement, DrawingCanvasProps>(function DrawingCanvas(
-  { viewBoxWidth, viewBoxHeight, strokes, tool, color, lineWidth, dashed, onStrokeComplete, resolutionScale = 1 },
+  {
+    viewBoxWidth,
+    viewBoxHeight,
+    originX = 0,
+    originY = 0,
+    strokes,
+    tool,
+    color,
+    lineWidth,
+    dashed,
+    onStrokeComplete,
+    resolutionScale = 1,
+  },
   forwardedRef,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -120,15 +138,17 @@ export const DrawingCanvas = forwardRef<HTMLCanvasElement, DrawingCanvasProps>(f
     canvas.width = Math.round(rawWidth * clamp)
     canvas.height = Math.round(rawHeight * clamp)
     const ctx = canvas.getContext('2d')
-    ctx?.setTransform(canvas.width / viewBoxWidth, 0, 0, canvas.height / viewBoxHeight, 0, 0)
+    const sx = canvas.width / viewBoxWidth
+    const sy = canvas.height / viewBoxHeight
+    ctx?.setTransform(sx, 0, 0, sy, -originX * sx, -originY * sy)
     renderAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [strokes, viewBoxWidth, viewBoxHeight, resolutionScale])
+  }, [strokes, viewBoxWidth, viewBoxHeight, originX, originY, resolutionScale])
 
   const toViewBoxPoint = (e: React.PointerEvent<HTMLCanvasElement>): StrokePoint => {
     const rect = e.currentTarget.getBoundingClientRect()
-    const x = ((e.clientX - rect.left) / rect.width) * viewBoxWidth
-    const y = ((e.clientY - rect.top) / rect.height) * viewBoxHeight
+    const x = originX + ((e.clientX - rect.left) / rect.width) * viewBoxWidth
+    const y = originY + ((e.clientY - rect.top) / rect.height) * viewBoxHeight
     // mouse reports pressure 0; treat that as a default "full" press
     const pressure = e.pointerType === 'mouse' ? 0.5 : e.pressure || 0.5
     return { x, y, pressure }

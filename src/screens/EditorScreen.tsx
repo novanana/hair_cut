@@ -16,6 +16,11 @@ const MIN_SCALE = 0.5
 const MAX_SCALE = 4
 const AUTOSAVE_DELAY_MS = 500
 const THUMBNAIL_WIDTH = 180
+// how much drawable margin surrounds the template, as a fraction of its own
+// size on each side — lets strokes extend past the template's silhouette
+// once it's zoomed/panned instead of being clipped to empty background
+const CANVAS_PADDING_RATIO = 0.5
+const WORLD_SCALE = 1 + CANVAS_PADDING_RATIO * 2
 
 const CATEGORY_OPTIONS = Object.keys(CATEGORY_LABELS) as TemplateCategory[]
 
@@ -38,6 +43,13 @@ function midpoint(a: Point, b: Point): Point {
 
 export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProps) {
   const template = getTemplate(templateId)
+  // drawable world extends past the template's own box on every side; the
+  // template keeps its original [0,width]x[0,height] coordinates so strokes
+  // saved before this padding existed still land in the right place
+  const worldWidth = template.viewBox.width * WORLD_SCALE
+  const worldHeight = template.viewBox.height * WORLD_SCALE
+  const originX = -template.viewBox.width * CANVAS_PADDING_RATIO
+  const originY = -template.viewBox.height * CANVAS_PADDING_RATIO
 
   const [title, setTitle] = useState('')
   const [strokes, setStrokes] = useState<Stroke[]>([])
@@ -89,7 +101,15 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
     off.height = height
     const ctx = off.getContext('2d')
     if (!ctx) return undefined
-    ctx.drawImage(source, 0, 0, source.width, source.height, 0, 0, width, height)
+    // the backing canvas covers the padded world, not just the template —
+    // crop to the template's own sub-rectangle so thumbnails aren't zoomed
+    // out with blank margins around the silhouette
+    const cropFraction = 1 / WORLD_SCALE
+    const sx = source.width * CANVAS_PADDING_RATIO * cropFraction
+    const sy = source.height * CANVAS_PADDING_RATIO * cropFraction
+    const sw = source.width * cropFraction
+    const sh = source.height * cropFraction
+    ctx.drawImage(source, sx, sy, sw, sh, 0, 0, width, height)
     return off.toDataURL('image/png')
   }
 
@@ -251,22 +271,25 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
         ) : (
           <div className="relative mx-auto aspect-[3/4] w-full max-h-full overflow-hidden">
             <div
-              className="absolute inset-0 h-full w-full"
+              className="absolute"
               style={{
+                inset: `${-CANVAS_PADDING_RATIO * 100}%`,
                 transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
                 transformOrigin: '0 0',
               }}
             >
               <svg
-                viewBox={`0 0 ${template.viewBox.width} ${template.viewBox.height}`}
+                viewBox={`${originX} ${originY} ${worldWidth} ${worldHeight}`}
                 className="pointer-events-none absolute inset-0 h-full w-full"
               >
                 <template.Guide />
               </svg>
               <DrawingCanvas
                 ref={canvasRef}
-                viewBoxWidth={template.viewBox.width}
-                viewBoxHeight={template.viewBox.height}
+                viewBoxWidth={worldWidth}
+                viewBoxHeight={worldHeight}
+                originX={originX}
+                originY={originY}
                 strokes={strokes}
                 tool={tool}
                 color={color}
