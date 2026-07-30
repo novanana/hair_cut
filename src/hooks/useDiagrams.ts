@@ -11,12 +11,8 @@ export function useDiagrams(category: CategoryFilter) {
   useEffect(() => {
     const subscription = liveQuery(() =>
       category === 'all'
-        ? db.diagrams.orderBy('updatedAt').reverse().toArray()
-        : db.diagrams
-            .where('category')
-            .equals(category)
-            .sortBy('updatedAt')
-            .then((rows) => rows.reverse())
+        ? db.diagrams.orderBy('order').toArray()
+        : db.diagrams.where('category').equals(category).sortBy('order')
     ).subscribe({
       next: setDiagrams,
       error: (err) => console.error('저장된 도해도를 불러오지 못했습니다', err),

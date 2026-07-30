@@ -12,6 +12,8 @@ export interface Diagram {
   thumbnail?: string
   createdAt: number
   updatedAt: number
+  /** manual sort position for the home screen list — smaller sorts first */
+  order: number
 }
 
 /** a user's saved customization (ear position / hairline / head points) for one template */
@@ -42,6 +44,17 @@ class HairDiagramDB extends Dexie {
       diagrams: 'id, category, updatedAt',
       templateOverrides: 'templateId',
     })
+    this.version(3)
+      .stores({
+        diagrams: 'id, category, updatedAt, order',
+        templateOverrides: 'templateId',
+      })
+      .upgrade(async (tx) => {
+        // backfill `order` for diagrams saved before manual reordering existed,
+        // preserving their existing newest-first order so the list doesn't reshuffle
+        const rows = await tx.table('diagrams').orderBy('updatedAt').reverse().toArray()
+        await Promise.all(rows.map((row, i) => tx.table('diagrams').update(row.id, { order: i })))
+      })
   }
 }
 
