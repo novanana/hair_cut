@@ -82,12 +82,9 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
                   🗑
                 </button>
                 <div className="relative aspect-[3/4] w-full overflow-hidden rounded-lg bg-zinc-950">
-                  <svg
-                    viewBox={`0 0 ${template.viewBox.width} ${template.viewBox.height}`}
-                    className="absolute inset-0 h-full w-full"
-                  >
-                    <template.Guide />
-                  </svg>
+                  {/* reference photo only — no hairline/point overlay here, since those
+                      are template-wide settings, not something saved with this diagram */}
+                  <img src={template.photo} alt="" className="absolute inset-0 h-full w-full object-contain" />
                   {diagram.thumbnail && (
                     <img src={diagram.thumbnail} alt="" className="absolute inset-0 h-full w-full" />
                   )}
