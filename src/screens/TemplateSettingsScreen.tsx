@@ -7,16 +7,14 @@ interface TemplateSettingsScreenProps {
   onClose: () => void
 }
 
-type Mode = 'ears' | 'hairline' | 'points'
+type Mode = 'hairline' | 'points'
 
 const MODE_LABELS: Record<Mode, string> = {
-  ears: '귀 위치',
   hairline: '헤어라인',
   points: '두상 포인트',
 }
 
 const MODE_HINTS: Record<Mode, string> = {
-  ears: '파란 점을 끌어서 귀 위치를 옮기세요.',
   hairline: '화면을 손가락으로 그으면 헤어라인이 새로 그려집니다.',
   points: '주황 점을 끌어서 기준점 위치를 옮기세요.',
 }
@@ -27,12 +25,12 @@ function distance(a: Point, b: Point) {
 
 export function TemplateSettingsScreen({ templateId, onClose }: TemplateSettingsScreenProps) {
   const template = getTemplate(templateId)
-  const [mode, setMode] = useState<Mode>('ears')
+  const [mode, setMode] = useState<Mode>('hairline')
   const [draft, setDraft] = useState<TemplateLayout>(template.defaultLayout)
   const [ready, setReady] = useState(false)
   const [saving, setSaving] = useState(false)
   const svgRef = useRef<SVGSVGElement>(null)
-  const dragRef = useRef<{ kind: 'ear' | 'point'; key: string } | null>(null)
+  const dragIndexRef = useRef<number | null>(null)
   const drawingRef = useRef(false)
 
   useEffect(() => {
@@ -56,16 +54,6 @@ export function TemplateSettingsScreen({ templateId, onClose }: TemplateSettings
     }
   }
 
-  const beginEarDrag = (key: string) => (e: React.PointerEvent) => {
-    e.stopPropagation()
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId)
-    } catch {
-      // ignore — fall back to implicit touch targeting
-    }
-    dragRef.current = { kind: 'ear', key }
-  }
-
   const beginPointDrag = (index: number) => (e: React.PointerEvent) => {
     e.stopPropagation()
     try {
@@ -73,7 +61,7 @@ export function TemplateSettingsScreen({ templateId, onClose }: TemplateSettings
     } catch {
       // ignore — fall back to implicit touch targeting
     }
-    dragRef.current = { kind: 'point', key: String(index) }
+    dragIndexRef.current = index
   }
 
   const handleSvgPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
@@ -99,22 +87,18 @@ export function TemplateSettingsScreen({ templateId, onClose }: TemplateSettings
       })
       return
     }
-    if (!dragRef.current) return
+    if (dragIndexRef.current === null) return
     const p = toPoint(e)
-    const drag = dragRef.current
+    const idx = dragIndexRef.current
     setDraft((d) => {
-      if (drag.kind === 'ear') {
-        return { ...d, ears: { ...d.ears, [drag.key]: p } }
-      }
       const points = d.points.slice()
-      const idx = Number(drag.key)
       points[idx] = { ...points[idx], x: p.x, y: p.y }
       return { ...d, points }
     })
   }
 
   const endInteraction = () => {
-    dragRef.current = null
+    dragIndexRef.current = null
     drawingRef.current = false
   }
 
@@ -175,21 +159,6 @@ export function TemplateSettingsScreen({ templateId, onClose }: TemplateSettings
             onPointerCancel={endInteraction}
           >
             <template.Guide layout={draft} />
-
-            {mode === 'ears' &&
-              Object.entries(draft.ears).map(([key, pos]) => (
-                <circle
-                  key={key}
-                  cx={pos.x}
-                  cy={pos.y}
-                  r={9}
-                  fill="#38bdf8"
-                  fillOpacity={0.5}
-                  stroke="#0ea5e9"
-                  strokeWidth={1.5}
-                  onPointerDown={beginEarDrag(key)}
-                />
-              ))}
 
             {mode === 'points' &&
               draft.points.map((p, idx) => (
