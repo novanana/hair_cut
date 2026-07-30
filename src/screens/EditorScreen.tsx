@@ -67,7 +67,7 @@ export function EditorScreen({ templateId, onBack }: EditorScreenProps) {
       </header>
 
       <div className="relative flex-1 overflow-hidden bg-zinc-950">
-        <div className="relative mx-auto aspect-[3/4] h-full max-h-full">
+        <div className="relative mx-auto aspect-[3/4] w-full max-h-full">
           <svg
             viewBox={`0 0 ${template.viewBox.width} ${template.viewBox.height}`}
             className="pointer-events-none absolute inset-0 h-full w-full"
