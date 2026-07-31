@@ -1,6 +1,6 @@
 import { liveQuery } from 'dexie'
 import { useEffect, useState } from 'react'
-import { db, type Diagram } from '../db'
+import { db, type Diagram, type DiagramGroup } from '../db'
 import type { TemplateCategory } from '../templates/headTemplates'
 
 export type CategoryFilter = TemplateCategory | 'all'
@@ -21,4 +21,18 @@ export function useDiagrams(category: CategoryFilter) {
   }, [category])
 
   return diagrams
+}
+
+export function useGroups() {
+  const [groups, setGroups] = useState<DiagramGroup[]>([])
+
+  useEffect(() => {
+    const subscription = liveQuery(() => db.groups.orderBy('createdAt').toArray()).subscribe({
+      next: setGroups,
+      error: (err) => console.error('그룹을 불러오지 못했습니다', err),
+    })
+    return () => subscription.unsubscribe()
+  }, [])
+
+  return groups
 }

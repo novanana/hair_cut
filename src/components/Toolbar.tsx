@@ -5,6 +5,8 @@ const COLORS = [
   { value: '#ef4444', label: '커트선' },
   { value: '#3b82f6', label: '가이드' },
   { value: '#22c55e', label: '보조' },
+  { value: '#eab308', label: '노란색' },
+  { value: '#ec4899', label: '핑크색' },
 ]
 
 const LINE_STYLES: { value: boolean; label: string }[] = [
@@ -40,7 +42,7 @@ export function Toolbar({
   return (
     <div className="flex flex-col gap-2 border-t border-zinc-800 bg-zinc-900 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex gap-1.5">
+        <div className="flex min-w-0 gap-1.5 overflow-x-auto">
           {COLORS.map((c) => (
             <button
               key={c.value}
@@ -67,7 +69,7 @@ export function Toolbar({
           </button>
         </div>
 
-        <div className="flex gap-1.5">
+        <div className="flex shrink-0 gap-1.5">
           <button
             aria-label="실행취소"
             disabled={!canUndo}

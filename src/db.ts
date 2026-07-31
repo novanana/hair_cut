@@ -10,6 +10,7 @@ export interface Diagram {
   strokes: Stroke[]
   memo: string
   thumbnail?: string
+  groupId?: string
   createdAt: number
   updatedAt: number
   /** manual sort position for the home screen list — smaller sorts first */
@@ -23,6 +24,12 @@ export interface TemplateOverride {
   updatedAt: number
 }
 
+export interface DiagramGroup {
+  id: string
+  name: string
+  createdAt: number
+}
+
 export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
   cut: '커트',
   perm: '펌',
@@ -34,6 +41,7 @@ export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
 class HairDiagramDB extends Dexie {
   diagrams!: EntityTable<Diagram, 'id'>
   templateOverrides!: EntityTable<TemplateOverride, 'templateId'>
+  groups!: EntityTable<DiagramGroup, 'id'>
 
   constructor() {
     super('hair-diagram-notes')
@@ -55,6 +63,11 @@ class HairDiagramDB extends Dexie {
         const rows = await tx.table('diagrams').orderBy('updatedAt').reverse().toArray()
         await Promise.all(rows.map((row, i) => tx.table('diagrams').update(row.id, { order: i })))
       })
+    this.version(4).stores({
+      diagrams: 'id, category, updatedAt, order, groupId',
+      templateOverrides: 'templateId',
+      groups: 'id, createdAt',
+    })
   }
 }
 
