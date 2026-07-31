@@ -16,8 +16,6 @@ const FILTERS: { value: CategoryFilter; label: string }[] = [
   })),
 ]
 
-const UNGROUPED = '__ungrouped__'
-
 // how long a press has to hold before it can turn into a reorder drag, and
 // how far the pointer then has to move to actually start dragging — a plain
 // tap (or a scroll that starts on a card) shouldn't get mistaken for one
@@ -38,20 +36,21 @@ async function createGroup(name: string) {
 
 export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
   const [filter, setFilter] = useState<CategoryFilter>('all')
-  const [groupFilter, setGroupFilter] = useState<string>('all')
+  // null = the root screen (folders + ungrouped cards); a group id = browsing inside that folder
+  const [openGroupId, setOpenGroupId] = useState<string | null>(null)
   const diagrams = useDiagrams(filter)
   const groups = useGroups()
   const [assigningDiagram, setAssigningDiagram] = useState<Diagram | null>(null)
   const [newGroupName, setNewGroupName] = useState('')
 
+  const currentGroup = openGroupId ? groups.find((g) => g.id === openGroupId) : undefined
+
+  // cards shown in the main grid: ungrouped cards at the root, or the open
+  // folder's cards once inside one — grouped cards otherwise live inside
+  // their folder tile and don't clutter the root list
   const visibleDiagrams = useMemo(
-    () =>
-      diagrams.filter((d) => {
-        if (groupFilter === 'all') return true
-        if (groupFilter === UNGROUPED) return !d.groupId
-        return d.groupId === groupFilter
-      }),
-    [diagrams, groupFilter],
+    () => diagrams.filter((d) => (openGroupId === null ? !d.groupId : d.groupId === openGroupId)),
+    [diagrams, openGroupId],
   )
 
   // local copy that can be live-reordered while dragging without waiting on
@@ -111,7 +110,7 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
         await db.groups.delete(groupId)
         await db.diagrams.where('groupId').equals(groupId).modify({ groupId: undefined })
       })
-      if (groupFilter === groupId) setGroupFilter('all')
+      if (openGroupId === groupId) setOpenGroupId(null)
     } else if (trimmed && trimmed !== name) {
       await db.groups.update(groupId, { name: trimmed })
     }
@@ -330,8 +329,24 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
 
   return (
     <div className="relative flex h-full flex-col">
-      <header className="border-b border-zinc-800 px-4 py-4">
-        <h1 className="text-lg font-semibold">헤어 도해도 노트</h1>
+      <header className="flex items-center gap-3 border-b border-zinc-800 px-4 py-4">
+        {currentGroup ? (
+          <>
+            <button onClick={() => setOpenGroupId(null)} aria-label="뒤로" className="text-xl">
+              ←
+            </button>
+            <h1 className="flex-1 truncate text-lg font-semibold">📁 {currentGroup.name}</h1>
+            <button
+              onClick={(e) => handleGroupContextMenu(e, currentGroup.id, currentGroup.name)}
+              aria-label="그룹 관리"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-sm text-zinc-300"
+            >
+              ⋯
+            </button>
+          </>
+        ) : (
+          <h1 className="text-lg font-semibold">헤어 도해도 노트</h1>
+        )}
       </header>
 
       <div className="flex gap-1.5 overflow-x-auto border-b border-zinc-800 px-4 py-2">
@@ -348,51 +363,58 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
         ))}
       </div>
 
-      <div className="flex gap-1.5 overflow-x-auto border-b border-zinc-800 px-4 py-2">
-        <button
-          onClick={() => setGroupFilter('all')}
-          className={`shrink-0 rounded-full px-3 py-1 text-xs ${
-            groupFilter === 'all' ? 'bg-white text-zinc-900' : 'bg-zinc-800 text-zinc-300'
-          }`}
-        >
-          전체 그룹
-        </button>
-        <button
-          onClick={() => setGroupFilter(UNGROUPED)}
-          className={`shrink-0 rounded-full px-3 py-1 text-xs ${
-            groupFilter === UNGROUPED ? 'bg-white text-zinc-900' : 'bg-zinc-800 text-zinc-300'
-          }`}
-        >
-          그룹 없음
-        </button>
-        {groups.map((g) => (
-          <button
-            key={g.id}
-            onClick={() => setGroupFilter(g.id)}
-            onContextMenu={(e) => handleGroupContextMenu(e, g.id, g.name)}
-            className={`shrink-0 rounded-full px-3 py-1 text-xs ${
-              groupFilter === g.id ? 'bg-white text-zinc-900' : 'bg-zinc-800 text-zinc-300'
-            }`}
-          >
-            📁 {g.name}
-          </button>
-        ))}
-        <button onClick={handleAddGroup} className="shrink-0 rounded-full bg-zinc-800 px-3 py-1 text-xs text-zinc-300">
-          + 새 그룹
-        </button>
-      </div>
+      <div className="flex flex-1 flex-col overflow-y-auto">
+        {openGroupId === null && (
+          <div className="grid grid-cols-2 gap-4 p-4 pb-0">
+            {groups.map((g) => {
+              const count = diagrams.filter((d) => d.groupId === g.id).length
+              return (
+                <button
+                  key={g.id}
+                  onClick={() => setOpenGroupId(g.id)}
+                  onContextMenu={(e) => handleGroupContextMenu(e, g.id, g.name)}
+                  className="flex flex-col items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-left active:bg-zinc-800"
+                >
+                  <div className="flex aspect-[3/4] w-full items-center justify-center rounded-lg bg-zinc-950 text-4xl">
+                    📁
+                  </div>
+                  <span className="w-full truncate text-sm text-zinc-200">{g.name}</span>
+                  <span className="w-full text-xs text-zinc-500">{count}개</span>
+                </button>
+              )
+            })}
+            <button
+              onClick={handleAddGroup}
+              className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-zinc-700 p-3 text-left text-zinc-500 active:bg-zinc-900"
+            >
+              <div className="flex aspect-[3/4] w-full items-center justify-center rounded-lg border border-dashed border-zinc-700 text-3xl">
+                +
+              </div>
+              <span className="w-full truncate text-sm">새 그룹</span>
+            </button>
+          </div>
+        )}
 
-      {localDiagrams.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-zinc-400">
-          <p className="text-4xl">✂️</p>
-          <p>{diagrams.length === 0 ? '아직 저장된 도해도가 없어요.' : '이 조건에는 저장된 도해도가 없어요.'}</p>
-          <p className="text-sm text-zinc-500">우측 하단 버튼으로 첫 도해도를 만들어보세요.</p>
-        </div>
-      ) : (
-        <div ref={gridRef} className="grid flex-1 grid-cols-2 content-start gap-4 overflow-y-auto p-4">
-          {localDiagrams.map((diagram, index) => renderCard(diagram, index, false))}
-        </div>
-      )}
+        {localDiagrams.length === 0 ? (
+          openGroupId === null && diagrams.length > 0 ? null : (
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-zinc-400">
+              <p className="text-4xl">✂️</p>
+              <p>
+                {openGroupId
+                  ? '이 그룹에는 저장된 도해도가 없어요.'
+                  : filter === 'all'
+                    ? '아직 저장된 도해도가 없어요.'
+                    : '이 카테고리에는 저장된 도해도가 없어요.'}
+              </p>
+              <p className="text-sm text-zinc-500">우측 하단 버튼으로 새 도해도를 만들어보세요.</p>
+            </div>
+          )
+        ) : (
+          <div ref={gridRef} className="grid grid-cols-2 content-start gap-4 p-4">
+            {localDiagrams.map((diagram, index) => renderCard(diagram, index, false))}
+          </div>
+        )}
+      </div>
 
       {draggedDiagram && renderCard(draggedDiagram, dragIndex!, true)}
 
