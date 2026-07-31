@@ -46,9 +46,9 @@ export function useGroupMedia(groupId: string | null) {
       return
     }
     const subscription = liveQuery(() =>
-      db.media.where('groupId').equals(groupId).sortBy('createdAt')
+      db.media.where('groupId').equals(groupId).sortBy('order')
     ).subscribe({
-      next: (rows) => setMedia(rows.reverse()),
+      next: setMedia,
       error: (err) => console.error('사진/동영상을 불러오지 못했습니다', err),
     })
     return () => subscription.unsubscribe()

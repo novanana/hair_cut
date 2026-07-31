@@ -36,7 +36,10 @@ export interface GroupMedia {
   groupId: string
   type: 'image' | 'video'
   blob: Blob
+  name: string
   createdAt: number
+  /** manual sort position within the folder's media strip — smaller sorts first (left) */
+  order: number
 }
 
 export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
@@ -84,6 +87,19 @@ class HairDiagramDB extends Dexie {
       groups: 'id, createdAt',
       media: 'id, groupId, createdAt',
     })
+    this.version(6)
+      .stores({
+        diagrams: 'id, category, updatedAt, order, groupId',
+        templateOverrides: 'templateId',
+        groups: 'id, createdAt',
+        media: 'id, groupId, createdAt, order',
+      })
+      .upgrade(async (tx) => {
+        // backfill `name` and `order` for media saved before either existed,
+        // preserving upload order left-to-right
+        const rows = await tx.table('media').orderBy('createdAt').toArray()
+        await Promise.all(rows.map((row, i) => tx.table('media').update(row.id, { name: '', order: i })))
+      })
   }
 }
 

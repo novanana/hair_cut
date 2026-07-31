@@ -52,6 +52,29 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
   // URL on every render would leak one for each render instead
   const mediaUrlsRef = useRef(new Map<string, string>())
 
+  // local copy that can be live-reordered while dragging, same pattern as
+  // localDiagrams below — resynced from the live query whenever a drag isn't
+  // in progress
+  const [localMedia, setLocalMedia] = useState<GroupMedia[]>([])
+  const [mediaDragIndex, setMediaDragIndex] = useState<number | null>(null)
+  const [mediaGhostRect, setMediaGhostRect] = useState<{
+    left: number
+    top: number
+    width: number
+    height: number
+  } | null>(null)
+
+  const mediaStripRef = useRef<HTMLDivElement>(null)
+  const mediaItemRefs = useRef(new Map<string, HTMLDivElement>())
+  const localMediaRef = useRef<GroupMedia[]>([])
+  const mediaPressStartRef = useRef<{ x: number; y: number } | null>(null)
+  const mediaGrabOffsetRef = useRef({ x: 0, y: 0 })
+  const mediaLongPressTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const mediaLongPressReadyRef = useRef(false)
+  const mediaDidDragRef = useRef(false)
+  const mediaDragIndexRef = useRef<number | null>(null)
+  const mediaCleanupDragRef = useRef<(() => void) | null>(null)
+
   // cards shown in the main grid: ungrouped cards at the root, or the open
   // folder's cards once inside one — grouped cards otherwise live inside
   // their folder tile and don't clutter the root list
@@ -98,6 +121,16 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
   useEffect(() => () => cleanupDragRef.current?.(), [])
 
   useEffect(() => {
+    localMediaRef.current = localMedia
+  }, [localMedia])
+
+  useEffect(() => {
+    if (mediaDragIndex === null) setLocalMedia(media)
+  }, [media, mediaDragIndex])
+
+  useEffect(() => () => mediaCleanupDragRef.current?.(), [])
+
+  useEffect(() => {
     const currentIds = new Set(media.map((m) => m.id))
     for (const m of media) {
       if (!mediaUrlsRef.current.has(m.id)) {
@@ -133,14 +166,17 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
     const files = Array.from(e.target.files ?? [])
     e.target.value = '' // allow re-selecting the same file later
     if (!groupId || files.length === 0) return
+    const baseOrder = media.length
     await Promise.all(
-      files.map((file) =>
+      files.map((file, i) =>
         db.media.add({
           id: crypto.randomUUID(),
           groupId,
           type: file.type.startsWith('video') ? 'video' : 'image',
           blob: file,
+          name: '',
           createdAt: Date.now(),
+          order: baseOrder + i,
         }),
       ),
     )
@@ -150,6 +186,15 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
     e.stopPropagation()
     if (!window.confirm('이 사진/동영상을 삭제할까요?')) return
     void db.media.delete(m.id)
+  }
+
+  const handleRenameMedia = (m: GroupMedia, name: string) => {
+    if (name === m.name) return
+    void db.media.update(m.id, { name })
+  }
+
+  const commitMediaOrder = async (finalOrder: GroupMedia[]) => {
+    await Promise.all(finalOrder.map((m, i) => db.media.update(m.id, { order: i })))
   }
 
   const handleAddGroup = async () => {
@@ -366,6 +411,138 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
     cleanupDragRef.current = endDrag
   }
 
+  // long-press a media thumbnail to drag it left/right within the strip —
+  // same long-press + threshold + scroll-fallback pattern as the diagram
+  // grid above, just along one axis instead of two
+  const handleMediaPointerDown = (index: number) => (e: React.PointerEvent) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return
+    const pointerId = e.pointerId
+    mediaPressStartRef.current = { x: e.clientX, y: e.clientY }
+    mediaLongPressReadyRef.current = false
+    mediaDidDragRef.current = false
+    let isScrolling = false
+    let lastScrollX = e.clientX
+
+    const el = mediaItemRefs.current.get(localMediaRef.current[index]?.id)
+    const grabRect = el?.getBoundingClientRect()
+    if (grabRect) {
+      mediaGrabOffsetRef.current = { x: e.clientX - grabRect.left, y: e.clientY - grabRect.top }
+    }
+
+    mediaLongPressTimerRef.current = setTimeout(() => {
+      mediaLongPressReadyRef.current = true
+    }, LONG_PRESS_MS)
+
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId || !mediaPressStartRef.current) return
+
+      if (isScrolling) {
+        const strip = mediaStripRef.current
+        if (strip) strip.scrollLeft -= ev.clientX - lastScrollX
+        lastScrollX = ev.clientX
+        return
+      }
+
+      const dx = ev.clientX - mediaPressStartRef.current.x
+      const dy = ev.clientY - mediaPressStartRef.current.y
+      const moved = Math.hypot(dx, dy) > DRAG_START_THRESHOLD
+
+      if (mediaDragIndexRef.current === null) {
+        if (!mediaLongPressReadyRef.current) {
+          if (moved) {
+            // moved before the hold registered — pan the strip by hand,
+            // same reasoning as the diagram grid's scroll fallback
+            if (mediaLongPressTimerRef.current) clearTimeout(mediaLongPressTimerRef.current)
+            isScrolling = true
+            mediaDidDragRef.current = true
+            const strip = mediaStripRef.current
+            if (strip) strip.scrollLeft -= dx
+            lastScrollX = ev.clientX
+          }
+          return
+        }
+        if (!moved) return
+        mediaDidDragRef.current = true
+        mediaDragIndexRef.current = index
+        setMediaGhostRect({
+          left: ev.clientX - mediaGrabOffsetRef.current.x,
+          top: ev.clientY - mediaGrabOffsetRef.current.y,
+          width: grabRect?.width ?? 0,
+          height: grabRect?.height ?? 0,
+        })
+        setMediaDragIndex(index)
+        return
+      }
+
+      // already dragging — move the ghost with the finger and retarget to
+      // whichever slot the pointer is horizontally over
+      setMediaGhostRect((r) =>
+        r ? { ...r, left: ev.clientX - mediaGrabOffsetRef.current.x, top: ev.clientY - mediaGrabOffsetRef.current.y } : r,
+      )
+
+      const current = mediaDragIndexRef.current
+      const strip = mediaStripRef.current
+      if (strip && grabRect) {
+        const stripRect = strip.getBoundingClientRect()
+        const gap = 8 // matches the strip's gap-2
+        const slotWidth = grabRect.width + gap
+        const uploadTileWidth = grabRect.width + gap // the "+" tile is the same size, ahead of index 0
+        const relativeX = ev.clientX - stripRect.left + strip.scrollLeft - uploadTileWidth
+        const targetIndex = Math.min(
+          localMediaRef.current.length - 1,
+          Math.max(0, Math.floor(relativeX / slotWidth)),
+        )
+        if (targetIndex !== current) {
+          mediaDragIndexRef.current = targetIndex
+          setLocalMedia((prev) => {
+            const next = prev.slice()
+            const [movedItem] = next.splice(current, 1)
+            next.splice(targetIndex, 0, movedItem)
+            return next
+          })
+          setMediaDragIndex(targetIndex)
+        }
+      }
+    }
+
+    const endDrag = () => {
+      if (mediaLongPressTimerRef.current) clearTimeout(mediaLongPressTimerRef.current)
+      mediaLongPressTimerRef.current = undefined
+      mediaPressStartRef.current = null
+      mediaLongPressReadyRef.current = false
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      mediaCleanupDragRef.current = null
+      if (mediaDragIndexRef.current !== null) {
+        mediaDragIndexRef.current = null
+        setMediaDragIndex(null)
+        setMediaGhostRect(null)
+        void commitMediaOrder(localMediaRef.current)
+      }
+    }
+
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      endDrag()
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    mediaCleanupDragRef.current = endDrag
+  }
+
+  const handleMediaClick = (m: GroupMedia) => {
+    if (mediaDidDragRef.current) {
+      mediaDidDragRef.current = false
+      return
+    }
+    setLightboxMedia(m)
+  }
+
+  const draggedMedia = mediaDragIndex !== null ? localMedia[mediaDragIndex] : undefined
+
   const handleCardClick = (diagram: Diagram) => {
     if (didDragRef.current) {
       didDragRef.current = false
@@ -470,6 +647,78 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
     )
   }
 
+  const renderMediaItem = (m: GroupMedia, index: number, isGhost: boolean) => (
+    <div
+      key={isGhost ? `${m.id}-ghost` : m.id}
+      ref={isGhost ? undefined : (el) => void (el ? mediaItemRefs.current.set(m.id, el) : mediaItemRefs.current.delete(m.id))}
+      style={
+        isGhost && mediaGhostRect
+          ? {
+              position: 'fixed',
+              left: mediaGhostRect.left,
+              top: mediaGhostRect.top,
+              width: mediaGhostRect.width,
+              zIndex: 50,
+            }
+          : undefined
+      }
+      className={`flex w-20 shrink-0 flex-col gap-1 ${
+        isGhost ? 'scale-105 shadow-2xl' : mediaDragIndex === index ? 'opacity-0' : ''
+      }`}
+    >
+      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-zinc-900 touch-none select-none">
+        <button
+          onPointerDown={isGhost ? undefined : handleMediaPointerDown(index)}
+          onClick={() => handleMediaClick(m)}
+          onContextMenu={(e) => e.preventDefault()}
+          className="absolute inset-0"
+        >
+          {m.type === 'video' ? (
+            <video
+              src={mediaUrlsRef.current.get(m.id)}
+              muted
+              playsInline
+              className="h-full w-full object-cover [-webkit-touch-callout:none]"
+            />
+          ) : (
+            <img
+              src={mediaUrlsRef.current.get(m.id)}
+              alt=""
+              draggable={false}
+              className="h-full w-full object-cover [-webkit-touch-callout:none]"
+            />
+          )}
+          {m.type === 'video' && (
+            <span className="absolute inset-0 flex items-center justify-center bg-black/20 text-lg text-white">
+              ▶
+            </span>
+          )}
+        </button>
+        {!isGhost && (
+          <button
+            onClick={(e) => handleDeleteMedia(e, m)}
+            aria-label="삭제"
+            className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-zinc-950/80 text-[10px] text-zinc-300"
+          >
+            🗑
+          </button>
+        )}
+      </div>
+      {!isGhost && (
+        <input
+          key={m.id}
+          defaultValue={m.name}
+          onBlur={(e) => handleRenameMedia(m, e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur()
+          }}
+          placeholder="이름"
+          className="w-full truncate rounded bg-transparent px-0.5 text-center text-[10px] text-zinc-400 outline-none placeholder:text-zinc-600"
+        />
+      )}
+    </div>
+  )
+
   return (
     <div className="relative flex h-full flex-col">
       <header className="flex items-center gap-3 border-b border-zinc-800 px-4 py-4">
@@ -507,7 +756,7 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
       </div>
 
       {currentGroup && (
-        <div className="flex gap-2 overflow-x-auto border-b border-zinc-800 px-4 py-3">
+        <div ref={mediaStripRef} className="flex gap-2 overflow-x-auto border-b border-zinc-800 px-4 py-3">
           <button
             onClick={() => fileInputRef.current?.click()}
             className="flex h-20 w-20 shrink-0 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-zinc-700 text-zinc-500 active:bg-zinc-900"
@@ -515,39 +764,7 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
             <span className="text-xl">＋</span>
             <span className="text-[10px]">사진/동영상</span>
           </button>
-          {media.map((m) => (
-            <div key={m.id} className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-zinc-900">
-              <button onClick={() => setLightboxMedia(m)} className="absolute inset-0">
-                {m.type === 'video' ? (
-                  <video
-                    src={mediaUrlsRef.current.get(m.id)}
-                    muted
-                    playsInline
-                    className="h-full w-full object-cover [-webkit-touch-callout:none]"
-                  />
-                ) : (
-                  <img
-                    src={mediaUrlsRef.current.get(m.id)}
-                    alt=""
-                    draggable={false}
-                    className="h-full w-full object-cover [-webkit-touch-callout:none]"
-                  />
-                )}
-                {m.type === 'video' && (
-                  <span className="absolute inset-0 flex items-center justify-center bg-black/20 text-lg text-white">
-                    ▶
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={(e) => handleDeleteMedia(e, m)}
-                aria-label="삭제"
-                className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-zinc-950/80 text-[10px] text-zinc-300"
-              >
-                🗑
-              </button>
-            </div>
-          ))}
+          {localMedia.map((m, index) => renderMediaItem(m, index, false))}
           <input
             ref={fileInputRef}
             type="file"
@@ -558,6 +775,8 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
           />
         </div>
       )}
+
+      {draggedMedia && renderMediaItem(draggedMedia, mediaDragIndex!, true)}
 
       <div ref={scrollContainerRef} className="flex flex-1 flex-col overflow-y-auto">
         {openGroupId === null && (
