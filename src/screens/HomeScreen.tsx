@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CATEGORY_LABELS, db, type Diagram } from '../db'
-import { useDiagrams, useGroups, type CategoryFilter } from '../hooks/useDiagrams'
+import { CATEGORY_LABELS, db, type Diagram, type GroupMedia } from '../db'
+import { useDiagrams, useGroupMedia, useGroups, type CategoryFilter } from '../hooks/useDiagrams'
 import { getTemplate } from '../templates/headTemplates'
 
 interface HomeScreenProps {
@@ -44,6 +44,13 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
   const [newGroupName, setNewGroupName] = useState('')
 
   const currentGroup = openGroupId ? groups.find((g) => g.id === openGroupId) : undefined
+  const media = useGroupMedia(openGroupId)
+  const [lightboxMedia, setLightboxMedia] = useState<GroupMedia | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  // one object URL per media blob, created lazily and revoked once the item
+  // is gone (deleted, or we've navigated out of its folder) — recreating a
+  // URL on every render would leak one for each render instead
+  const mediaUrlsRef = useRef(new Map<string, string>())
 
   // cards shown in the main grid: ungrouped cards at the root, or the open
   // folder's cards once inside one — grouped cards otherwise live inside
@@ -90,10 +97,59 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
   // release any window listeners left over if the component unmounts mid-drag
   useEffect(() => () => cleanupDragRef.current?.(), [])
 
+  useEffect(() => {
+    const currentIds = new Set(media.map((m) => m.id))
+    for (const m of media) {
+      if (!mediaUrlsRef.current.has(m.id)) {
+        mediaUrlsRef.current.set(m.id, URL.createObjectURL(m.blob))
+      }
+    }
+    for (const [id, url] of mediaUrlsRef.current) {
+      if (!currentIds.has(id)) {
+        URL.revokeObjectURL(url)
+        mediaUrlsRef.current.delete(id)
+      }
+    }
+  }, [media])
+
+  // revoke whatever's left when the screen itself unmounts
+  useEffect(
+    () => () => {
+      for (const url of mediaUrlsRef.current.values()) URL.revokeObjectURL(url)
+    },
+    [],
+  )
+
   const handleDelete = (e: React.MouseEvent, diagram: Diagram) => {
     e.stopPropagation()
     if (!window.confirm(`"${diagram.title || getTemplate(diagram.templateId).name + ' 도해도'}"를 삭제할까요?`)) return
     void db.diagrams.delete(diagram.id)
+  }
+
+  const handleFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const groupId = openGroupId
+    // copy out of the live FileList before clearing the input — resetting
+    // .value empties that same FileList in place, not just the input
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = '' // allow re-selecting the same file later
+    if (!groupId || files.length === 0) return
+    await Promise.all(
+      files.map((file) =>
+        db.media.add({
+          id: crypto.randomUUID(),
+          groupId,
+          type: file.type.startsWith('video') ? 'video' : 'image',
+          blob: file,
+          createdAt: Date.now(),
+        }),
+      ),
+    )
+  }
+
+  const handleDeleteMedia = (e: React.MouseEvent, m: GroupMedia) => {
+    e.stopPropagation()
+    if (!window.confirm('이 사진/동영상을 삭제할까요?')) return
+    void db.media.delete(m.id)
   }
 
   const handleAddGroup = async () => {
@@ -450,6 +506,59 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
         ))}
       </div>
 
+      {currentGroup && (
+        <div className="flex gap-2 overflow-x-auto border-b border-zinc-800 px-4 py-3">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex h-20 w-20 shrink-0 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-zinc-700 text-zinc-500 active:bg-zinc-900"
+          >
+            <span className="text-xl">＋</span>
+            <span className="text-[10px]">사진/동영상</span>
+          </button>
+          {media.map((m) => (
+            <div key={m.id} className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-zinc-900">
+              <button onClick={() => setLightboxMedia(m)} className="absolute inset-0">
+                {m.type === 'video' ? (
+                  <video
+                    src={mediaUrlsRef.current.get(m.id)}
+                    muted
+                    playsInline
+                    className="h-full w-full object-cover [-webkit-touch-callout:none]"
+                  />
+                ) : (
+                  <img
+                    src={mediaUrlsRef.current.get(m.id)}
+                    alt=""
+                    draggable={false}
+                    className="h-full w-full object-cover [-webkit-touch-callout:none]"
+                  />
+                )}
+                {m.type === 'video' && (
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/20 text-lg text-white">
+                    ▶
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={(e) => handleDeleteMedia(e, m)}
+                aria-label="삭제"
+                className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-zinc-950/80 text-[10px] text-zinc-300"
+              >
+                🗑
+              </button>
+            </div>
+          ))}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,video/*"
+            multiple
+            onChange={handleFilesSelected}
+            className="hidden"
+          />
+        </div>
+      )}
+
       <div ref={scrollContainerRef} className="flex flex-1 flex-col overflow-y-auto">
         {openGroupId === null && (
           <div className="grid grid-cols-2 gap-4 p-4 pb-0">
@@ -581,6 +690,38 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {lightboxMedia && (
+        <div
+          className="fixed inset-0 z-30 flex items-center justify-center bg-black/90 p-4"
+          onClick={() => setLightboxMedia(null)}
+        >
+          {lightboxMedia.type === 'video' ? (
+            <video
+              src={mediaUrlsRef.current.get(lightboxMedia.id)}
+              controls
+              autoPlay
+              playsInline
+              className="max-h-full max-w-full rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <img
+              src={mediaUrlsRef.current.get(lightboxMedia.id)}
+              alt=""
+              className="max-h-full max-w-full rounded-lg object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
+          <button
+            onClick={() => setLightboxMedia(null)}
+            aria-label="닫기"
+            className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-zinc-900/80 text-lg text-white"
+          >
+            ✕
+          </button>
         </div>
       )}
 

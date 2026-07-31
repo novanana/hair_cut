@@ -1,6 +1,6 @@
 import { liveQuery } from 'dexie'
 import { useEffect, useState } from 'react'
-import { db, type Diagram, type DiagramGroup } from '../db'
+import { db, type Diagram, type DiagramGroup, type GroupMedia } from '../db'
 import type { TemplateCategory } from '../templates/headTemplates'
 
 export type CategoryFilter = TemplateCategory | 'all'
@@ -35,4 +35,24 @@ export function useGroups() {
   }, [])
 
   return groups
+}
+
+export function useGroupMedia(groupId: string | null) {
+  const [media, setMedia] = useState<GroupMedia[]>([])
+
+  useEffect(() => {
+    if (!groupId) {
+      setMedia([])
+      return
+    }
+    const subscription = liveQuery(() =>
+      db.media.where('groupId').equals(groupId).sortBy('createdAt')
+    ).subscribe({
+      next: (rows) => setMedia(rows.reverse()),
+      error: (err) => console.error('사진/동영상을 불러오지 못했습니다', err),
+    })
+    return () => subscription.unsubscribe()
+  }, [groupId])
+
+  return media
 }

@@ -30,6 +30,15 @@ export interface DiagramGroup {
   createdAt: number
 }
 
+/** a photo or video the user attached to a folder — e.g. a shot taken during the lesson */
+export interface GroupMedia {
+  id: string
+  groupId: string
+  type: 'image' | 'video'
+  blob: Blob
+  createdAt: number
+}
+
 export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
   cut: '커트',
   perm: '펌',
@@ -42,6 +51,7 @@ class HairDiagramDB extends Dexie {
   diagrams!: EntityTable<Diagram, 'id'>
   templateOverrides!: EntityTable<TemplateOverride, 'templateId'>
   groups!: EntityTable<DiagramGroup, 'id'>
+  media!: EntityTable<GroupMedia, 'id'>
 
   constructor() {
     super('hair-diagram-notes')
@@ -67,6 +77,12 @@ class HairDiagramDB extends Dexie {
       diagrams: 'id, category, updatedAt, order, groupId',
       templateOverrides: 'templateId',
       groups: 'id, createdAt',
+    })
+    this.version(5).stores({
+      diagrams: 'id, category, updatedAt, order, groupId',
+      templateOverrides: 'templateId',
+      groups: 'id, createdAt',
+      media: 'id, groupId, createdAt',
     })
   }
 }
