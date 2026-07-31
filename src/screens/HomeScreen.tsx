@@ -61,9 +61,13 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
   const [ghostRect, setGhostRect] = useState<{ left: number; top: number; width: number; height: number } | null>(
     null,
   )
+  // which folder tile (if any) the dragged card is currently hovering over
+  const [hoverFolderId, setHoverFolderId] = useState<string | null>(null)
 
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const gridRef = useRef<HTMLDivElement>(null)
   const cardRefs = useRef(new Map<string, HTMLDivElement>())
+  const folderRefs = useRef(new Map<string, HTMLButtonElement>())
   const localDiagramsRef = useRef<Diagram[]>([])
   const pressStartRef = useRef<{ x: number; y: number } | null>(null)
   const grabOffsetRef = useRef({ x: 0, y: 0 })
@@ -71,6 +75,8 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
   const longPressReadyRef = useRef(false)
   const didDragRef = useRef(false)
   const dragIndexRef = useRef<number | null>(null)
+  const hoverFolderIdRef = useRef<string | null>(null)
+  const draggedDiagramIdRef = useRef<string | null>(null)
   const cleanupDragRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
@@ -145,6 +151,11 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
     pressStartRef.current = { x: e.clientX, y: e.clientY }
     longPressReadyRef.current = false
     didDragRef.current = false
+    // once a pre-hold move is recognized as a scroll (see below), every
+    // further move for this gesture just pans the list — it can never
+    // turn back into a drag
+    let isScrolling = false
+    let lastScrollY = e.clientY
 
     const el = cardRefs.current.get(localDiagramsRef.current[index]?.id)
     const grabRect = el?.getBoundingClientRect()
@@ -161,19 +172,42 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
     // pointer as cards get reordered underneath it
     const onMove = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId || !pressStartRef.current) return
+
+      if (isScrolling) {
+        const container = scrollContainerRef.current
+        if (container) container.scrollTop -= ev.clientY - lastScrollY
+        lastScrollY = ev.clientY
+        return
+      }
+
       const dx = ev.clientX - pressStartRef.current.x
       const dy = ev.clientY - pressStartRef.current.y
       const moved = Math.hypot(dx, dy) > DRAG_START_THRESHOLD
 
       if (dragIndexRef.current === null) {
         if (!longPressReadyRef.current) {
-          if (moved) endDrag() // moved before the hold registered — a scroll, not a drag
+          if (moved) {
+            // moved before the hold registered — a scroll, not a drag. Cards
+            // are touch-action:none (so a confirmed drag doesn't fight the
+            // page for the gesture), which also blocks the browser's own
+            // touch scrolling, so drive the container's scrollTop by hand
+            if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
+            isScrolling = true
+            // suppress the click this gesture would otherwise fire on
+            // mouseup/touchend — the pointer likely ends up over a
+            // different card once the list has scrolled underneath it
+            didDragRef.current = true
+            const container = scrollContainerRef.current
+            if (container) container.scrollTop -= dy
+            lastScrollY = ev.clientY
+          }
           return
         }
         if (!moved) return
         // hold elapsed and the finger is now moving — start dragging
         didDragRef.current = true
         dragIndexRef.current = index
+        draggedDiagramIdRef.current = localDiagramsRef.current[index]?.id ?? null
         setGhostRect({
           left: ev.clientX - grabOffsetRef.current.x,
           top: ev.clientY - grabOffsetRef.current.y,
@@ -184,19 +218,39 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
         return
       }
 
-      // already dragging — move the ghost with the finger and retarget to
-      // whichever fixed grid cell the pointer is over. Cell geometry (not
-      // other cards' current positions) drives this on purpose: comparing
-      // against neighbors' centers creates a feedback loop — swapping moves
-      // a different card under the pointer, which immediately looks closer
-      // than the target and swaps right back, oscillating every move event.
+      // already dragging — move the ghost with the finger
       setGhostRect((r) =>
         r ? { ...r, left: ev.clientX - grabOffsetRef.current.x, top: ev.clientY - grabOffsetRef.current.y } : r,
       )
 
+      // hovering a folder tile files the card into that group on drop
+      // instead of reordering it — folders only render at the root screen
+      let hoveredFolder: string | null = null
+      if (openGroupId === null) {
+        for (const [groupId, folderEl] of folderRefs.current) {
+          const r = folderEl.getBoundingClientRect()
+          if (ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom) {
+            hoveredFolder = groupId
+            break
+          }
+        }
+      }
+      if (hoveredFolder !== hoverFolderIdRef.current) {
+        hoverFolderIdRef.current = hoveredFolder
+        setHoverFolderId(hoveredFolder)
+      }
+
+      // retarget to whichever fixed grid cell the pointer is over. Cell
+      // geometry (not other cards' current positions) drives this on
+      // purpose: comparing against neighbors' centers creates a feedback
+      // loop — swapping moves a different card under the pointer, which
+      // immediately looks closer than the target and swaps right back,
+      // oscillating every move event. Skipped while hovering a folder so
+      // the list doesn't jump to slot 0 just because the pointer moved
+      // above the grid, into the folder row.
       const current = dragIndexRef.current
       const gridEl = gridRef.current
-      if (gridEl && grabRect) {
+      if (!hoveredFolder && gridEl && grabRect) {
         const containerRect = gridEl.getBoundingClientRect()
         const cols = 2
         const gap = 16 // matches the grid's gap-4
@@ -229,7 +283,19 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
         dragIndexRef.current = null
         setDragIndex(null)
         setGhostRect(null)
-        void commitOrder(localDiagramsRef.current)
+        const droppedFolderId = hoverFolderIdRef.current
+        const draggedId = draggedDiagramIdRef.current
+        hoverFolderIdRef.current = null
+        draggedDiagramIdRef.current = null
+        setHoverFolderId(null)
+        if (droppedFolderId && draggedId) {
+          // move it into the folder right away instead of waiting on the
+          // IndexedDB round-trip, so it doesn't flash back into the grid
+          setLocalDiagrams((prev) => prev.filter((d) => d.id !== draggedId))
+          void db.diagrams.update(draggedId, { groupId: droppedFolderId })
+        } else {
+          void commitOrder(localDiagramsRef.current)
+        }
       }
     }
 
@@ -280,8 +346,14 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
               }
             : undefined
         }
-        className={`relative flex flex-col items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-left touch-none select-none ${
-          isGhost ? 'shadow-2xl scale-105' : dragIndex === index ? 'opacity-0' : 'active:bg-zinc-800'
+        className={`relative flex flex-col items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-left touch-none select-none transition-all ${
+          isGhost
+            ? hoverFolderId
+              ? 'scale-75 opacity-60 shadow-2xl' // shrink over the target folder so its highlight peeks through
+              : 'scale-105 shadow-2xl'
+            : dragIndex === index
+              ? 'opacity-0'
+              : 'active:bg-zinc-800'
         }`}
       >
         <span className="absolute right-2 top-2 z-10 rounded-full bg-zinc-950/80 px-2 py-0.5 text-[10px] text-zinc-300">
@@ -363,19 +435,27 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
         ))}
       </div>
 
-      <div className="flex flex-1 flex-col overflow-y-auto">
+      <div ref={scrollContainerRef} className="flex flex-1 flex-col overflow-y-auto">
         {openGroupId === null && (
           <div className="grid grid-cols-2 gap-4 p-4 pb-0">
             {groups.map((g) => {
               const count = diagrams.filter((d) => d.groupId === g.id).length
+              const isHovered = hoverFolderId === g.id
               return (
                 <button
                   key={g.id}
+                  ref={(el) => void (el ? folderRefs.current.set(g.id, el) : folderRefs.current.delete(g.id))}
                   onClick={() => setOpenGroupId(g.id)}
                   onContextMenu={(e) => handleGroupContextMenu(e, g.id, g.name)}
-                  className="flex flex-col items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-left active:bg-zinc-800"
+                  className={`flex flex-col items-center gap-2 rounded-xl border p-3 text-left transition-colors ${
+                    isHovered ? 'border-white bg-zinc-800' : 'border-zinc-800 bg-zinc-900 active:bg-zinc-800'
+                  }`}
                 >
-                  <div className="flex aspect-[3/4] w-full items-center justify-center rounded-lg bg-zinc-950 text-4xl">
+                  <div
+                    className={`flex aspect-[3/4] w-full items-center justify-center rounded-lg text-4xl transition-transform ${
+                      isHovered ? 'scale-110 bg-zinc-900' : 'bg-zinc-950'
+                    }`}
+                  >
                     📁
                   </div>
                   <span className="w-full truncate text-sm text-zinc-200">{g.name}</span>
