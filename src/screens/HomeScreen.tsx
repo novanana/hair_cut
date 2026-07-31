@@ -334,6 +334,9 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') onOpenDiagram(diagram)
         }}
+        // a long-press is our reorder/file-into-folder gesture, not a request
+        // for the phone's native "save/share image" menu
+        onContextMenu={(e) => e.preventDefault()}
         style={
           isGhost && ghostRect
             ? {
@@ -383,11 +386,23 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
             // the saved thumbnail is a full snapshot of the editor at save time
             // (photo + strokes, at whatever pan/zoom was active) — no overlay needed.
             // draggable=false so the browser's native image drag doesn't hijack our
-            // own long-press reorder gesture and swallow subsequent pointer events
-            <img src={diagram.thumbnail} alt="" draggable={false} className="absolute inset-0 h-full w-full" />
+            // own long-press reorder gesture and swallow subsequent pointer events.
+            // touch-callout:none stops iOS Safari's long-press "Save Image" sheet,
+            // which contextmenu.preventDefault() alone doesn't suppress
+            <img
+              src={diagram.thumbnail}
+              alt=""
+              draggable={false}
+              className="absolute inset-0 h-full w-full [-webkit-touch-callout:none]"
+            />
           ) : (
             // no thumbnail yet (e.g. still saving) — show the plain reference photo
-            <img src={template.photo} alt="" draggable={false} className="absolute inset-0 h-full w-full object-contain" />
+            <img
+              src={template.photo}
+              alt=""
+              draggable={false}
+              className="absolute inset-0 h-full w-full object-contain [-webkit-touch-callout:none]"
+            />
           )}
         </div>
         <span className="w-full truncate text-sm text-zinc-200">{diagram.title || `${template.name} 도해도`}</span>
@@ -439,7 +454,8 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
         {openGroupId === null && (
           <div className="grid grid-cols-2 gap-4 p-4 pb-0">
             {groups.map((g) => {
-              const count = diagrams.filter((d) => d.groupId === g.id).length
+              const groupDiagrams = diagrams.filter((d) => d.groupId === g.id)
+              const preview = groupDiagrams.slice(0, 4)
               const isHovered = hoverFolderId === g.id
               return (
                 <button
@@ -451,15 +467,36 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
                     isHovered ? 'border-white bg-zinc-800' : 'border-zinc-800 bg-zinc-900 active:bg-zinc-800'
                   }`}
                 >
-                  <div
-                    className={`flex aspect-[3/4] w-full items-center justify-center rounded-lg text-4xl transition-transform ${
-                      isHovered ? 'scale-110 bg-zinc-900' : 'bg-zinc-950'
-                    }`}
-                  >
-                    📁
-                  </div>
+                  {preview.length === 0 ? (
+                    <div
+                      className={`flex aspect-[3/4] w-full items-center justify-center rounded-lg text-4xl transition-transform ${
+                        isHovered ? 'scale-110 bg-zinc-900' : 'bg-zinc-950'
+                      }`}
+                    >
+                      📁
+                    </div>
+                  ) : (
+                    <div
+                      className={`grid aspect-[3/4] w-full grid-cols-2 grid-rows-2 gap-0.5 overflow-hidden rounded-lg bg-zinc-950 transition-transform ${
+                        isHovered ? 'scale-110' : ''
+                      }`}
+                    >
+                      {Array.from({ length: 4 }, (_, i) => preview[i]).map((d, i) => (
+                        <div key={d?.id ?? i} className="overflow-hidden bg-zinc-900">
+                          {d && (
+                            <img
+                              src={d.thumbnail ?? getTemplate(d.templateId).photo}
+                              alt=""
+                              draggable={false}
+                              className="h-full w-full object-cover [-webkit-touch-callout:none]"
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <span className="w-full truncate text-sm text-zinc-200">{g.name}</span>
-                  <span className="w-full text-xs text-zinc-500">{count}개</span>
+                  <span className="w-full text-xs text-zinc-500">{groupDiagrams.length}개</span>
                 </button>
               )
             })}
