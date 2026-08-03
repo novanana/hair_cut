@@ -1,3 +1,4 @@
+import { useBackClose } from '../hooks/useBackClose'
 import { useTemplateOverride } from '../hooks/useTemplateOverride'
 import { HEAD_TEMPLATES, type HeadTemplate } from '../templates/headTemplates'
 
@@ -22,6 +23,8 @@ function TemplateCard({ template, onSelect }: { template: HeadTemplate; onSelect
 }
 
 export function TemplateSelectScreen({ onBack, onSelect }: TemplateSelectScreenProps) {
+  useBackClose(true, onBack)
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-3 border-b border-zinc-800 px-4 py-4">

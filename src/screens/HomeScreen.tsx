@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CATEGORY_LABELS, db, type Diagram, type GroupMedia } from '../db'
+import { useBackClose } from '../hooks/useBackClose'
 import { useDiagrams, useGroupMedia, useGroups, type CategoryFilter } from '../hooks/useDiagrams'
 import { getTemplate } from '../templates/headTemplates'
 
@@ -46,6 +47,12 @@ export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
   const currentGroup = openGroupId ? groups.find((g) => g.id === openGroupId) : undefined
   const media = useGroupMedia(openGroupId)
   const [lightboxMedia, setLightboxMedia] = useState<GroupMedia | null>(null)
+
+  // back button closes whichever of these is open first, innermost layer
+  // (lightbox, then the assign-to-group sheet) before it closes the folder
+  useBackClose(openGroupId !== null, () => setOpenGroupId(null))
+  useBackClose(assigningDiagram !== null, () => setAssigningDiagram(null))
+  useBackClose(lightboxMedia !== null, () => setLightboxMedia(null))
   const fileInputRef = useRef<HTMLInputElement>(null)
   // one object URL per media blob, created lazily and revoked once the item
   // is gone (deleted, or we've navigated out of its folder) — recreating a

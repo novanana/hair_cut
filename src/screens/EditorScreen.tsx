@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { DrawingCanvas, type Stroke, type Tool } from '../components/DrawingCanvas'
 import { Toolbar } from '../components/Toolbar'
 import { CATEGORY_LABELS, db, type Diagram } from '../db'
+import { useBackClose } from '../hooks/useBackClose'
 import { useTemplateOverride } from '../hooks/useTemplateOverride'
 import { getTemplate, type TemplateCategory } from '../templates/headTemplates'
 import { TemplateSettingsScreen } from './TemplateSettingsScreen'
@@ -226,6 +227,9 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
     if (ready) void persist()
     onBack()
   }
+
+  useBackClose(true, handleBack)
+  useBackClose(showTemplateSettings, () => setShowTemplateSettings(false))
 
   const activeGesturePointers = useRef(new Map<number, Point>())
   const lastGesture = useRef<{ dist: number; mid: Point } | null>(null)
