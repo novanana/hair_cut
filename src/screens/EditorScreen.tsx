@@ -81,6 +81,9 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
   // manual sort position for the home screen list — a brand new diagram sorts
   // first (very negative), an existing one keeps whatever position it had
   const orderRef = useRef<number>(-Date.now())
+  // which folder (if any) this diagram belongs to — not editable here, just
+  // carried through so autosave's put() doesn't wipe it off an existing diagram
+  const groupIdRef = useRef<string | undefined>(undefined)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
   const photoImgRef = useRef<HTMLImageElement | null>(null)
@@ -109,6 +112,7 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
         setCategory(saved.category)
         createdAtRef.current = saved.createdAt
         orderRef.current = saved.order
+        groupIdRef.current = saved.groupId
       }
       setReady(true)
     })
@@ -198,6 +202,7 @@ export function EditorScreen({ templateId, diagramId, onBack }: EditorScreenProp
       strokes,
       memo,
       thumbnail: captureThumbnail(),
+      groupId: groupIdRef.current,
       createdAt: createdAtRef.current,
       updatedAt: Date.now(),
       order: orderRef.current,

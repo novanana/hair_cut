@@ -5,6 +5,8 @@ import { useDiagrams, useGroupMedia, useGroups, type CategoryFilter } from '../h
 import { getTemplate } from '../templates/headTemplates'
 
 interface HomeScreenProps {
+  openGroupId: string | null
+  onOpenGroupIdChange: (groupId: string | null) => void
   onCreateNew: () => void
   onOpenDiagram: (diagram: Diagram) => void
 }
@@ -35,10 +37,8 @@ async function createGroup(name: string) {
   return id
 }
 
-export function HomeScreen({ onCreateNew, onOpenDiagram }: HomeScreenProps) {
+export function HomeScreen({ openGroupId, onOpenGroupIdChange: setOpenGroupId, onCreateNew, onOpenDiagram }: HomeScreenProps) {
   const [filter, setFilter] = useState<CategoryFilter>('all')
-  // null = the root screen (folders + ungrouped cards); a group id = browsing inside that folder
-  const [openGroupId, setOpenGroupId] = useState<string | null>(null)
   const diagrams = useDiagrams(filter)
   const groups = useGroups()
   const [assigningDiagram, setAssigningDiagram] = useState<Diagram | null>(null)
