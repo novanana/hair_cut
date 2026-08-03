@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 
 // Every mounted layer that wants the hardware/gesture back button to close it
 // (instead of exiting the PWA) registers its close callback here, in the
@@ -41,7 +41,12 @@ export function useBackClose(active: boolean, onClose: () => void) {
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
 
-  useEffect(() => {
+  // layout effect, not a plain effect: it must re-arm the trap before the
+  // browser paints. Plain effects run after paint, which leaves a window
+  // where a fast second back-button press (e.g. mashing back twice to reach
+  // the root) lands before this screen's own registration re-pushes the
+  // trap entry, so it falls straight through and exits the app instead.
+  useLayoutEffect(() => {
     if (!active) return
     const id = ++seq
     stack.push({ id, onClose: () => onCloseRef.current() })
